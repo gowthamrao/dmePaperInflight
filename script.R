@@ -2,7 +2,6 @@
 setwd(rstudioapi::getActiveDocumentContext()$path |> dirname())
 source("functions.R")
 
-cohortIdOfinterest <- 725 #Acute Kidney Injury
 
 # paste0("'", incidenceRate$databaseId |> unique(), "'") |> paste0(collapse = ", ")
 databaseIdsOfInterest <- c(
@@ -71,8 +70,6 @@ cohortCount <- DatabaseConnector::renderTranslateQuerySql(
 
 
 
-
-
 #R1: cohort counts----
 cohortCount |>
   tidyr::pivot_wider(
@@ -88,6 +85,13 @@ cohortCount |>
   View()
 
 
+
+
+
+
+
+
+cohortIdOfinterest <- 725 #Acute Kidney Injury
 #R2: incidence rate
 data <- incidenceRate |>
   dplyr::filter(cohortId %in% cohortIdOfinterest,
