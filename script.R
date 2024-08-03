@@ -108,8 +108,7 @@ if (all(temporalStabilityOutputWithZeroCount$stable)) {
 } else {
   writeLines("Some incidence rate data are not stable over time")
   temporalStabilityOutputWithZeroCount |>
-    dplyr::filter(!stable) |>
-    dplyr::select(cohortId, databaseId, calendarYear, stable) |>
+    dplyr::filter(stable == FALSE) |>
     View()
 }
 
@@ -125,8 +124,7 @@ if (all(temporalStabilityOutputWithoutZeroCount$stable)) {
 } else {
   writeLines("Some incidence rate data are not stable over time")
   temporalStabilityOutputWithoutZeroCount |>
-    dplyr::filter(!stable) |>
-    dplyr::select(cohortId, databaseId, calendarYear, stable) |>
+    dplyr::filter(stable == FALSE) |>
     View()
 }
 
@@ -168,107 +166,8 @@ plot_list <- plotsIncidenceRateSimple
 combined_plot <- gridExtra::marrangeGrob(plot_list, ncol = 1, nrow = 1)
 
 # Now you can save the combined plot as PDF
-ggsave("simpleTrendPlots.pdf", combined_plot, width = 11, height = 8.5)  # Adjust the width and height as needed
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-# #P1: no rescale----
-# data |>
-#   processData() |>
-#   plotData(plotTitle = "1 IR raw")
-#
-# #P2: abs change plot----
-# a <- data |>
-#   processData(rescale = "absoluteChange") |>
-#   plotData(plotTitle = "2 IR rescale absolute change to baseline")
-#
-# #P3: percent change plot----
-# data |>
-#   processData(rescale = "percentChange") |>
-#   plotData(plotTitle = "3 IR rescale percent change to baseline")
-#
-# #P4: percent change plot raw data, no adjustment----
-# data |>
-#   processData(rescale = "minMax") |>
-#   plotData(plotTitle = "4 IR rescale min max")
-#
-# #P5: log change plot----
-# data |>
-#   processData(rescale = "log") |>
-#   plotData(plotTitle = "5 IR rescale min max")
-#
-# #P6: zscore plot----
-# data |>
-#   processData(rescale = "zScore") |>
-#   plotData(plotTitle = "6 IR rescale zscore")
-#
-# #P7: zscore on absoluteChange----
-# data |>
-#   processData(rescale = "minMax") |>
-#   processData(rescale = "zScore") |>
-#   plotData(plotTitle = "7 IR rescale zscore")
-#
-# #P8: minMax and percentChange----
-# data |>
-#   processData(rescale = "minMax") |>
-#   processData(rescale = "percentChange") |>
-#   plotData(plotTitle = "8 IR min max percent change")
-#
-#
-#
-#
-# #P11: no rescale----
-# data |>
-#   processData() |>
-#   plotData(plotTitle = "11 IR raw - deviation from expected", yAxisCol = "deviationFromExpected")
-#
-# #P12: abs change plot----
-# data |>
-#   processData(rescale = "absoluteChange") |>
-#   plotData(plotTitle = "12 IR rescale absolute change to baseline - deviation from expected",
-#            yAxisCol = "deviationFromExpected")
-#
-# #P13: percent change plot----
-# data |>
-#   processData(rescale = "percentChange") |>
-#   plotData(plotTitle = "13 IR rescale percent change to baseline - deviation from expected",
-#            yAxisCol = "deviationFromExpected")
-#
-# #P14: percent change plot raw data, no adjustment----
-# data |>
-#   processData(rescale = "minMax") |>
-#   plotData(plotTitle = "14 IR rescale min max - deviation from expected",
-#            yAxisCol = "deviationFromExpected")
-#
-# #P15: log change plot----
-# data |>
-#   processData(rescale = "log") |>
-#   plotData(plotTitle = "15 IR rescale min max - deviation from expected",
-#            yAxisCol = "deviationFromExpected")
-#
-# #P16: zscore plot----
-# data |>
-#   processData(rescale = "zScore") |>
-#   plotData(plotTitle = "16 IR rescale zscore - deviation from expected",
-#            yAxisCol = "deviationFromExpected")
-#
-# #P17: zscore on absoluteChange----
-# data |>
-#   processData(rescale = "minMax") |>
-#   processData(rescale = "zScore") |>
-#   plotData(plotTitle = "17 IR rescale zscore - deviation from expected",
-#            yAxisCol = "deviationFromExpected")
-#
-# #P18: minMax and percentChange----
-# data |>
-#   processData(rescale = "minMax") |>
-#   processData(rescale = "percentChange") |>
-#   plotData(plotTitle = "18 IR min max percent change - deviation from expected",
-#            yAxisCol = "deviationFromExpected")
+ggplot2::ggsave("simpleTrendPlots.pdf",
+                combined_plot,
+                width = 11,
+                height = 8.5)  # Adjust the width and height as needed
+

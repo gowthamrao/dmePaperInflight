@@ -396,15 +396,28 @@ checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDi
     dplyr::select(cohortId, databaseId, gender, ageGroup, evaluated, stable) |>
     dplyr::inner_join(cohort |>
                         dplyr::select(cohortId, cohortName), by = "cohortId") |>
-    dplyr::relocate(cohortId, cohortName) |>
-    dplyr::mutate(isUnstable = isFALSE(stable))
+    dplyr::relocate(cohortId, cohortName)
   
   return(output)
 }
 
 
 
-
+#' Plot Simple Temporal Trend
+#'
+#' This function generates a line plot of incidence rates over time, grouped by database ID.
+#'
+#' @param data A data frame containing the data to be plotted.
+#' @param xAxisCol A string specifying the column in `data` to use for the x-axis. Default is "calendarYear".
+#' @param yAxisCol A string specifying the column in `data` to use for the y-axis. Default is "incidenceRate".
+#' @param groupBy A string specifying the column in `data` to use for grouping the data. Default is "databaseId".
+#' @param plotTitle A string specifying the title of the plot. Default is "Incidence Rate over time".
+#' @param xLabel A string specifying the label for the x-axis. Default is "Calendar year".
+#' @param yLabel A string specifying the label for the y-axis. Default is "Incidence Rate".
+#' @param useMinimalTheme A logical value indicating whether to use ggplot2's minimal theme. Default is TRUE.
+#' @param convertToPlotLy A logical value indicating whether to convert the ggplot object to a plotly object for interactive visualization. Default is FALSE.
+#' @return A ggplot or plotly object, depending on the value of `convertToPlotLy`.
+#' @export
 plotSimpleTemporalTrend <- function(data,
                                     xAxisCol = "calendarYear",
                                     yAxisCol = "incidenceRate",
@@ -419,12 +432,8 @@ plotSimpleTemporalTrend <- function(data,
   colors <- OhdsiRPlots::createOhdsiPalette(numColors = numColors)
   colorMapping <- setNames(colors, unique(data[[groupBy]]))
   
-  # Create unique keys for each group
-  uniqueKeys <- setNames(seq_along(unique(data[[groupBy]])), unique(data[[groupBy]]))
-  data$key <- uniqueKeys[data[[groupBy]]]
-  
   p <-
-    ggplot2::ggplot(data, ggplot2::aes(x = .data[[xAxisCol]], y = .data[[yAxisCol]], color = .data[[groupBy]], group = .data[[groupBy]])) +
+    ggplot2::ggplot(data, ggplot2::aes(x = .data[[xAxisCol]], y = .data[[yAxisCol]], color = .data[[groupBy]])) +
     ggplot2::geom_line() +
     ggplot2::geom_point() +
     ggplot2::scale_color_manual(values = colorMapping) +
@@ -433,13 +442,6 @@ plotSimpleTemporalTrend <- function(data,
       x = xLabel,
       y = yLabel,
       color = "Database ID"
-    ) +
-    ggrepel::geom_text_repel(
-      ggplot2::aes(label = key),
-      size = 3,
-      nudge_x = 0.05,
-      nudge_y = 0.05,
-      show.legend = FALSE
     )
   
   if (useMinimalTheme) {
@@ -448,114 +450,10 @@ plotSimpleTemporalTrend <- function(data,
   
   if (convertToPlotLy) {
     # Convert ggplot object to plotly for interactive visualization
-    p_plotly <- plotly::ggplotly(p, tooltip = c("x", "y", groupBy)) # Set tooltip to show data from specific columns
+    p_plotly <-
+      plotly::ggplotly(p, tooltip = c("x", "y", groupBy)) # Set tooltip to show data from specific columns
     return(p_plotly)
   } else {
     return(p)
   }
 }
-
-
-
-
-
-# plotData <- function(data,
-#                      baseLineCol = NULL,
-#                      baseLineAdjustment = NULL,
-#                      xAxisCol,
-#                      yAxisCol,
-#                      groupBy = "databaseId",
-#                      logTransform = FALSE,
-#                      rescaleAbsolute = NULL,
-#                      plotTitle = "Incidence Rate over time",
-#                      xLabel = "Calendar year",
-#                      yLabel = "Incidence Rate",
-#                      colorMapping,  # Added colorMapping as a parameter
-#                      useMinimalTheme = TRUE) {
-#
-#   # Group data by specified column
-#   data <- data |>
-#     dplyr::group_by(!!rlang::sym(groupBy))
-#
-#   # Check if colorMapping has enough colors for the unique IDs
-#   uniqueIds <- unique(data[[groupBy]])
-#   if (length(colorMapping) < length(uniqueIds)) {
-#     stop("Insufficient colors provided for the number of unique IDs.")
-#   }
-#
-#   # Check rescaleAbsolute option values
-#   if (!is.null(rescaleAbsolute)) {
-#     checkmate::assert_choice(tolower(rescaleAbsolute), choices = c("minmax", "zscore"))
-#   }
-#
-#   # Apply rescaling transformations
-#   if (!is.null(rescaleAbsolute)) {
-#     data <- data |>
-#       dplyr::mutate(!!rlang::sym(yAxisCol) := {
-#         if (tolower(rescaleAbsolute) == "minmax") {
-#           # Min-Max scaling to range -1 to 1
-#           -1 + 2 * ((.data[[yAxisCol]] - min(.data[[yAxisCol]], na.rm = TRUE)) /
-#                       (max(.data[[yAxisCol]], na.rm = TRUE) - min(.data[[yAxisCol]], na.rm = TRUE)))
-#         } else if (tolower(rescaleAbsolute) == "zscore") {
-#           # Z-score normalization
-#           (.data[[yAxisCol]] - mean(.data[[yAxisCol]], na.rm = TRUE)) / sd(.data[[yAxisCol]], na.rm = TRUE)
-#         } else {
-#           .data[[yAxisCol]]
-#         }
-#       })
-#   }
-#
-#   # Baseline adjustments
-#   if (!is.null(baseLineCol) && !is.null(baseLineAdjustment)) {
-#     checkmate::assert_choice(tolower(baseLineAdjustment), choices = c("ancova", "change", "percent", "mixed"))
-#     data <- data |>
-#       dplyr::mutate(!!rlang::sym(yAxisCol) := {
-#         baseline <- .data[[baseLineCol]]
-#         current <- .data[[yAxisCol]]
-#         if (tolower(baseLineAdjustment) == "change") {
-#           current - baseline
-#         } else if (tolower(baseLineAdjustment) == "percent") {
-#           100 * (current - baseline) / baseline
-#         } else {
-#           current  # Placeholder for 'ancova' and 'mixed', which are more complex and typically handled differently
-#         }
-#       })
-#   }
-#
-#   # Adjust data for log transformation if necessary
-#   if (logTransform) {
-#     minValue <- min(data[[yAxisCol]][data[[yAxisCol]] > 0], na.rm = TRUE)
-#     shiftValue <- ifelse(minValue <= 0, 0.0001, minValue)
-#     data <- data |>
-#       dplyr::mutate(!!rlang::sym(yAxisCol) := log10(ifelse(.data[[yAxisCol]] <= 0, shiftValue, .data[[yAxisCol]])))
-#   }
-#
-#   # Start plotting
-#   p <- ggplot2::ggplot(data, ggplot2::aes_string(x = xAxisCol, y = yAxisCol, color = groupBy)) +
-#     ggplot2::geom_line() +
-#     ggplot2::geom_point() +
-#     ggplot2::scale_color_manual(values = colorMapping)
-#
-#   # Conditionally apply log transformation on the y-axis
-#   if (logTransform) {
-#     p <- p + ggplot2::scale_y_log10(
-#       breaks = scales::trans_breaks("log10", function(x) 10 ^ x),
-#       labels = scales::trans_format("log10", scales::math_format(10^.x))
-#     )
-#   }
-#
-#   # Add titles and labels
-#   p <- p + ggplot2::labs(
-#     title = plotTitle,
-#     x = xLabel,
-#     y = yLabel,
-#     color = "Database ID"
-#   )
-#
-#   # Optionally use a minimal theme
-#   if (useMinimalTheme) {
-#     p <- p + ggplot2::theme_minimal()
-#   }
-#
-#   return(p)
-# }
