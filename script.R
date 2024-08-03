@@ -18,7 +18,7 @@ databaseIdsOfInterest <- c(
   'cdm_truven_mdcr_v2540'
 )
 
-yearRange <- c(2001:2022) |> as.character()
+yearRange <- c(2001:2024) |> as.character()
 
 
 # what is the name of the schema you want to upload to?
@@ -47,11 +47,14 @@ resultsSchema <- 'Icpe2023Dme' # change to your schema
 #   sql = "SELECT * FROM @results_database_schema.incidence_rate;",
 #   results_database_schema = resultsSchema,
 #   snakeCaseToCamelCase = TRUE
-# ) |> dplyr::tibble() |>
-#   dplyr::filter(databaseId %in% databaseIdsOfInterest,
-#                 calendarYear %in% yearRange)
+# ) |> dplyr::tibble()
 # saveRDS(object = incidenceRate, file = "incidenceRate.rds")
-incidenceRate <- readRDS(file = "incidenceRate.rds")
+incidenceRate <- readRDS(file = "incidenceRate.rds")|>
+  dplyr::filter(databaseId %in% databaseIdsOfInterest,
+                calendarYear %in% yearRange)|>
+  dplyr::filter(calendarYear != "") |>
+  dplyr::filter(ageGroup == '') |> # we are not using age stratified incidence rate for the diagnostic
+  dplyr::filter(gender == '') # we are not using gender stratified incidence rate for the diagnostic
 
 # cohort <- DatabaseConnector::renderTranslateQuerySql(
 #   connection = connection,
@@ -89,21 +92,14 @@ cohortCount <- readRDS(file = "cohortCount.rds")
 
 
 #R2: stability----
-observedCount <- incidenceRate |>
-  dplyr::filter(calendarYear != "") |>
-  dplyr::filter(ageGroup == '') |> # we are not using age stratified incidence rate for the diagnostic
-  dplyr::filter(gender == '') # we are not using gender stratified incidence rate for the diagnostic
-
-
 temporalStabilityOutputWithZeroCount <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
-  cohortDiagnosticsIncidenceRateData = observedCount,
+  cohortDiagnosticsIncidenceRateData = incidenceRate,
   cohort = cohort,
-  includeZeroCount = TRUE,
   maxNumberOfSplines = NULL,
   splineTickInterval = 3
 )
 
-if (all(temporalStabilityOutputWithZeroCount$stable)) {
+if (all(na.omit(temporalStabilityOutputWithoutZeroCount$stable))) {
   writeLines("All incidence rate data are stable over time")
 } else {
   writeLines("Some incidence rate data are not stable over time")
@@ -113,13 +109,13 @@ if (all(temporalStabilityOutputWithZeroCount$stable)) {
 }
 
 temporalStabilityOutputWithoutZeroCount <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
-  cohortDiagnosticsIncidenceRateData = observedCount,
+  cohortDiagnosticsIncidenceRateData = incidenceRate,
   cohort = cohort,
-  includeZeroCount = FALSE,
+  filterZeroAndLowCountRecords = TRUE,
   maxNumberOfSplines = NULL,
   splineTickInterval = 3
 )
-if (all(temporalStabilityOutputWithoutZeroCount$stable)) {
+if (all(na.omit(temporalStabilityOutputWithoutZeroCount$stable))) {
   writeLines("All incidence rate data are stable over time")
 } else {
   writeLines("Some incidence rate data are not stable over time")
@@ -134,16 +130,15 @@ temporalStabilityOutput <- dplyr::bind_rows(
 )
 
 # R3: do some simple plots
-cohortIds <- observedCount$cohortId |> unique() |> sort()
+cohortIds <- incidenceRate$cohortId |> unique() |> sort()
 plotsIncidenceRateSimple <- c()
 for (i in (1:length(cohortIds))) {
-  data <- observedCount |>
+  data <- incidenceRate |>
     dplyr::filter(cohortId == cohortIds[i])
   
   checkIfCohortDiagnosticsIncidenceRateData(data)
   
-  incidenceRateData <- processCohortDiagnosticsIncidenceRateData(cohortDiagnosticsIncidenceRateData = data,
-                                                                 zeroCountAdjustment = TRUE)
+  incidenceRateData <- processCohortDiagnosticsIncidenceRateData(cohortDiagnosticsIncidenceRateData = data)
   
   plotTitle <- paste0(
     paste("Cohort ID:", cohortIds[i]),

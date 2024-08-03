@@ -1,34 +1,3 @@
-#' Impute Missing Years in a Data Frame
-#'
-#' This function imputes missing years in a data frame. It groups the data by cohortId, databaseId, gender, and ageGroup, and fills in missing years with specified values.
-#' The function also adds a flag to indicate whether the data was imputed.
-#'
-#' @param df A data frame that contains the columns cohortId, databaseId, gender, ageGroup, and calendarYear.
-#' @return A data frame with missing years imputed.
-#' @export
-imputeMissingYears <- function(df) {
-  df_with_flag <- df |>
-    dplyr::mutate(imputedData = as.integer(0))
-  
-  output <- df_with_flag |>
-    dplyr::group_by(cohortId, databaseId, gender, ageGroup) |>
-    tidyr::complete(
-      calendarYear = seq(min(calendarYear), max(calendarYear), by = 1),
-      fill = list(
-        cohortCount = 0,
-        personYears = 0,
-        incidenceRate = 0,
-        imputedData = 1
-      )
-    ) |>
-    dplyr::mutate(imputedData = ifelse(is.na(imputedData), 0, imputedData)) |>
-    dplyr::ungroup() |>
-    dplyr::arrange(cohortId, databaseId, gender, ageGroup, calendarYear)
-  
-  return(output)
-}
-
-
 #' Get Predicted Count in a Data Frame
 #'
 #' This function predicts the count of events in a data frame using a Poisson regression model with natural splines. It groups the data by timeSequenceField and fills in missing counts with predicted values.
@@ -282,23 +251,17 @@ checkIfCohortDiagnosticsIncidenceRateData <- function(data) {
 #' This function processes the cohort diagnostics incidence rate data. It filters the data based on certain conditions, calculates the incidence rate, and imputes missing years.
 #'
 #' @param cohortDiagnosticsIncidenceRateData A data frame that contains the columns cohortId, databaseId, gender, ageGroup, calendarYear, cohortCount, personYears, and incidenceRate.
-#' @param zeroCountAdjustment A logical value indicating whether to adjust for zero counts. If TRUE, rows with zero counts or person years are removed.
 #' @return A data frame with processed cohort diagnostics incidence rate data.
 #' @export
-processCohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidenceRateData,
-                                                      zeroCountAdjustment) {
-  if (!zeroCountAdjustment) {
-    cohortDiagnosticsIncidenceRateData <- cohortDiagnosticsIncidenceRateData |>
-      dplyr::filter(cohortCount > 0) |>
-      dplyr::filter(personYears > 0)
-  }
-  
+processCohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidenceRateData) {
   outputData <- cohortDiagnosticsIncidenceRateData |>
+    dplyr::filter(personYears > 0) |> #remove any records with 0 or lower (below min cell count for privacy protection) person years
     dplyr::filter(calendarYear != "") |>
     dplyr::filter(ageGroup == '') |> # we are not using age stratified incidence rate for the diagnostic
     dplyr::filter(gender == '') |> # we are not using gender stratified incidence rate for the diagnostic
     dplyr::mutate(
       cohortCount = abs(cohortCount),
+      # to adjust for min cell count privacy protection output in CohortDiagnostics
       personYears = abs(personYears),
       incidenceRate = abs(cohortCount) / abs(personYears),
       calendarYear = as.integer(calendarYear)
@@ -313,7 +276,6 @@ processCohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidence
       personYears,
       incidenceRate
     ) |>
-    imputeMissingYears() |>  # we do not need to impute data in general for the Cohort Diagnostics output of incidence rate because it has 0 values
     dplyr::mutate(calendarYear = as.Date(paste0(calendarYear, "-06-01"))) # mid year
   
   return(outputData)
@@ -326,22 +288,29 @@ processCohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidence
 #'
 #' @param cohortDiagnosticsIncidenceRateData A data frame that contains the columns cohortId, databaseId, gender, ageGroup, calendarYear, cohortCount, personYears, and incidenceRate.
 #' @param cohort A data frame that contains the columns cohortId and cohortName.
-#' @param includeZeroCount A logical value indicating whether to include zero counts in the analysis. If TRUE, rows with zero counts are included.
+#' @param filterZeroAndLowCountRecords A logical value indicating whether to remove records from the observed data that have zero persons in the cohort during the calendar period or records that fall below the privacy protecting minimum threshold specified during the cohort diagnostics run. If set to TRUE, the function will exclude these records from the analysis. Default is FALSE.
 #' @param maxNumberOfSplines The maximum number of splines to use in the model. If NULL, the default is 5.
 #' @param splineTickInterval The interval at which to place the splines. The default is 3.
 #' @return A data frame with the cohortId, databaseId, gender, ageGroup, evaluated flag, stable flag, and isUnstable flag.
 #' @export
 checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidenceRateData,
                                                                         cohort,
-                                                                        includeZeroCount = TRUE,
+                                                                        filterZeroAndLowCountRecords = FALSE,
                                                                         maxNumberOfSplines = NULL,
                                                                         splineTickInterval = 3) {
-  zeroCountAdjustment <- includeZeroCount
-  
+  zeroCountAdjustment <- TRUE
   checkIfCohortDiagnosticsIncidenceRateData(cohortDiagnosticsIncidenceRateData)
   
-  observedCount <- processCohortDiagnosticsIncidenceRateData(cohortDiagnosticsIncidenceRateData = cohortDiagnosticsIncidenceRateData,
-                                                             zeroCountAdjustment = includeZeroCount)
+  # If filterZeroAndLowCountRecords is TRUE, remove records with zero persons in the cohort or records below the minimum threshold
+  if (filterZeroAndLowCountRecords) {
+    cohortDiagnosticsIncidenceRateData <- cohortDiagnosticsIncidenceRateData |>
+      dplyr::filter(cohortCount > 0) # this also removes records that have negative values i.e. below threshold
+    writeLines(
+      "Cohort periods with zero counts or those below the privacy protecting minimum threshold value are removed from analysis."
+    )
+  }
+  
+  observedCount <- processCohortDiagnosticsIncidenceRateData(cohortDiagnosticsIncidenceRateData = cohortDiagnosticsIncidenceRateData)
   
   combos <- observedCount |>
     dplyr::select(cohortId, databaseId, gender, ageGroup) |>
