@@ -46,7 +46,7 @@ getPredictedCount <- function(data,
   
   # Determine the number of splines based on the number of unique timeId values
   numberOfSplines <-
-    max(maxNumberOfSplines, ceiling(length(unique(data$timeId)) / splineTickInterval)) # we will put a spline for every 3 ticks
+    min(maxNumberOfSplines, ceiling(length(unique(data$timeId)) / splineTickInterval)) # we will put a spline for every 3 ticks
   
   # Create a Cyclops data object using the observed counts, timeId, and personTimeField
   # The formula used here is a Poisson regression model with natural splines
@@ -72,7 +72,7 @@ getPredictedCount <- function(data,
   predictions <- stats::predict(model, newdata = data)
   
   # Add the predicted counts to the data
-  data$expected <- round(as.double(predictions))
+  data$expected <- as.double(predictions)
   
   # Arrange the data based on timeId and select the 'observed' and 'expected' columns
   data <- data |>
@@ -194,9 +194,12 @@ likelihoodComparison <- function(data,
   } else {
     p <- pchisq(llr, 1, lower.tail = FALSE)
   }
-  result <- dplyr::tibble(ratio = xHat,
-                          p = p,
-                          stable = p > alpha)
+  result <- data |>
+    tidyr::crossing(dplyr::tibble(
+      ratio = xHat,
+      p = p,
+      stable = p > alpha
+    ))
   return(result)
 }
 
@@ -346,6 +349,9 @@ checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDi
         splineTickInterval = 3
       )
       
+      predicted <- predicted |>
+        dplyr::mutate(observedExpectedRatio = observed / expected)
+      
       if (nrow(data) == nrow(predicted)) {
         output[[i]] <- predicted |>
           likelihoodComparison(zeroCountAdjustment = zeroCountAdjustment) |>
@@ -362,7 +368,7 @@ checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDi
   close(pb)
   
   output <- dplyr::bind_rows(output) |>
-    dplyr::select(cohortId, databaseId, gender, ageGroup, evaluated, stable) |>
+    dplyr::select(-rn) |>
     dplyr::inner_join(cohort |>
                         dplyr::select(cohortId, cohortName), by = "cohortId") |>
     dplyr::relocate(cohortId, cohortName)

@@ -90,7 +90,7 @@ cohortCount <- readRDS(file = "cohortCount.rds")
 #   View()
 
 
-
+### check the changes for zero count - is it really needed?
 #R2: stability----
 temporalStabilityOutputWithZeroCount <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
   cohortDiagnosticsIncidenceRateData = incidenceRate,
@@ -99,7 +99,7 @@ temporalStabilityOutputWithZeroCount <- checkTemporalStabilityForcohortDiagnosti
   splineTickInterval = 3
 )
 
-if (all(na.omit(temporalStabilityOutputWithoutZeroCount$stable))) {
+if (all(na.omit(temporalStabilityOutputWithZeroCount$stable))) {
   writeLines("All incidence rate data are stable over time")
 } else {
   writeLines("Some incidence rate data are not stable over time")
@@ -129,7 +129,7 @@ temporalStabilityOutput <- dplyr::bind_rows(
   temporalStabilityOutputWithoutZeroCount |> dplyr::mutate(useZeroCount = 0)
 )
 
-# R3: do some simple plots
+# R3: do some simple plots - all database
 cohortIds <- incidenceRate$cohortId |> unique() |> sort()
 plotsIncidenceRateSimple <- c()
 for (i in (1:length(cohortIds))) {
@@ -166,3 +166,45 @@ ggplot2::ggsave("simpleTrendPlots.pdf",
                 width = 11,
                 height = 8.5)  # Adjust the width and height as needed
 
+
+# R4: do some simple plots - remove premier
+cohortIds <- incidenceRate$cohortId |> unique() |> sort()
+plotsIncidenceRateSimple <- c()
+for (i in (1:length(cohortIds))) {
+  data <- incidenceRate |>
+    dplyr::filter(cohortId == cohortIds[i]) |> 
+    dplyr::filter(databaseId != 'cdm_premier_v2543')
+  
+  checkIfCohortDiagnosticsIncidenceRateData(data)
+  
+  incidenceRateData <- processCohortDiagnosticsIncidenceRateData(cohortDiagnosticsIncidenceRateData = data)
+  
+  plotTitle <- paste0(
+    paste("Cohort ID:", cohortIds[i]),
+    "\n",
+    paste0(
+      cohort |>
+        dplyr::filter(cohortId == cohortIds[i]) |>
+        dplyr::pull(cohortName)
+    )
+  )
+  
+  plotsIncidenceRateSimple[[i]] <- incidenceRateData |>
+    plotSimpleTemporalTrend(plotTitle = plotTitle, yAxisCol = "incidenceRate")
+}
+
+# Create a list of plots
+plot_list <- plotsIncidenceRateSimple
+
+# Use marrangeGrob to arrange the plots across multiple pages
+combined_plot <- gridExtra::marrangeGrob(plot_list, ncol = 1, nrow = 1)
+
+# Now you can save the combined plot as PDF
+ggplot2::ggsave("simpleTrendPlotsNoPremier.pdf",
+                combined_plot,
+                width = 11,
+                height = 8.5)  # Adjust the width and height as needed
+
+
+# todo
+# plot expectedObserved to illustrate reasons for deviation.
