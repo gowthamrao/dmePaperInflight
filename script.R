@@ -20,7 +20,6 @@ databaseIdsOfInterest <- c(
 
 yearRange <- c(2001:2024) |> as.character()
 
-
 # what is the name of the schema you want to upload to?
 resultsSchema <- 'Icpe2023Dme' # change to your schema
 
@@ -67,8 +66,6 @@ incidenceRate <- readRDS(file = "incidenceRate.rds") |>
 # saveRDS(object = cohort, file = "cohort.rds")
 cohort <- readRDS(file = "cohort.rds")
 
-
-
 # cohortCount <- DatabaseConnector::renderTranslateQuerySql(
 #   connection = connection,
 #   sql = "SELECT * FROM @results_database_schema.cohort_count;",
@@ -97,45 +94,42 @@ cohortCount <- readRDS(file = "cohortCount.rds") |>
 #   View()
 
 #R2: stability----
-temporalStabilityOutputWithZeroCount <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
+temporalStabilityOutput <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
   cohortDiagnosticsIncidenceRateData = incidenceRate,
   cohort = cohort,
-  maxNumberOfSplines = NULL,
+  maxNumberOfSplines = 5,
   splineTickInterval = 3
 )
 
-if (all(na.omit(temporalStabilityOutputWithZeroCount$stable))) {
+report <- temporalStabilityOutput |>
+  dplyr::select(cohortId, cohortName, databaseId, stable) |>
+  dplyr::distinct()  |>
+  dplyr::mutate(stable = dplyr::case_when(
+    is.na(stable) ~ "Not tested",
+    stable == FALSE ~ "Unstable",
+    TRUE ~ ""
+  )) |> 
+  tidyr::pivot_wider(
+    id_cols = c(cohortId, cohortName),
+    names_from = databaseId,
+    values_from = stable
+  )
+
+if (all(na.omit(temporalStabilityOutput$stable))) {
   writeLines("All incidence rate data are stable over time")
 } else {
   writeLines("Some incidence rate data are not stable over time")
-  temporalStabilityOutputWithZeroCount |>
+  temporalStabilityOutput |>
     dplyr::filter(stable == FALSE) |>
     View()
 }
 
-# temporalStabilityOutputWithoutZeroCount <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
-#   cohortDiagnosticsIncidenceRateData = incidenceRate,
-#   cohort = cohort,
-#   filterZeroAndLowCountRecords = TRUE,
-#   maxNumberOfSplines = NULL,
-#   splineTickInterval = 3
-# )
-# if (all(na.omit(temporalStabilityOutputWithoutZeroCount$stable))) {
-#   writeLines("All incidence rate data are stable over time")
-# } else {
-#   writeLines("Some incidence rate data are not stable over time")
-#   temporalStabilityOutputWithoutZeroCount |>
-#     dplyr::filter(stable == FALSE) |>
-#     View()
-# }
-
-# temporalStabilityOutput <- dplyr::bind_rows(
-#   temporalStabilityOutputWithZeroCount |> dplyr::mutate(useZeroCount = 1),
-#   temporalStabilityOutputWithoutZeroCount |> dplyr::mutate(useZeroCount = 0)
-# )
 
 
-temporalStabilityOutputWithZeroCount |>
+
+
+
+temporalStabilityOutput |>
   dplyr::select(cohortId, cohortName, databaseId, ratio, p, stable) |>
   dplyr::distinct() |>
   # dplyr::filter(stable == FALSE) |>
@@ -150,7 +144,7 @@ temporalStabilityOutputWithZeroCount |>
 
 # R3: do some simple plots - all database
 
-dataToTryPlot <- temporalStabilityOutputWithZeroCount |> 
+dataToTryPlot <- temporalStabilityOutput |> 
   dplyr::mutate(databaseName = databaseId) |> 
   dplyr::filter(cohortId == 207)
 
@@ -162,13 +156,13 @@ createTrellisOfPlots(data = dataToTryPlot)
 
 
 
-cohortIds <- temporalStabilityOutputWithZeroCount$cohortId |> unique() |> sort()
-databaseIds <- temporalStabilityOutputWithZeroCount$databaseId |> unique() |> sort()
+cohortIds <- temporalStabilityOutput$cohortId |> unique() |> sort()
+databaseIds <- temporalStabilityOutput$databaseId |> unique() |> sort()
 
 plotsIncidenceRateCompareObservedExpected <- c()
 for (i in (1:length(cohortIds))) {
   
-  data <- temporalStabilityOutputWithZeroCount |>
+  data <- temporalStabilityOutput |>
     dplyr::filter(cohortId == cohortIdToReport,
                   databaseId == databaseIdToReport) |>
     dplyr::filter(evaluated == TRUE)
