@@ -87,7 +87,6 @@ fakeDatabaseId <- createFakeIncidenceRateData(
   cohortCountMax = 10000
 )
 plotSimpleTemporalTrend(data = fakeDatabaseId)
-
 predicedIncidenceRateData <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
   cohortDiagnosticsIncidenceRateData = fakeDatabaseId,
   cohort = cohort,
@@ -96,7 +95,6 @@ predicedIncidenceRateData <- checkTemporalStabilityForcohortDiagnosticsIncidence
   maxRatio = 1.25,
   alpha = 0.05
 )
-
 plotTemporalTrendExpectedObserved(data = predicedIncidenceRateData)
 
 

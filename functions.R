@@ -95,11 +95,6 @@ likelihoodComparison <- function(data,
   observed <- data$observed
   expected <- data$expected
   
-  if (any(expected == 0)) {
-    # Replace exact 0 values with 1e-8
-    expected <- ifelse(expected == 0, 1e-8, expected)
-  }
-  
   # From https://cdsmithus.medium.com/the-logarithm-of-a-sum-69dd76199790
   smoothMax <- function(x, y) {
     smoothMax <- ifelse(
@@ -348,7 +343,6 @@ plotSimpleTemporalTrend <- function(data,
                                     xAxisCol = "calendarYear",
                                     yAxisCol = "incidenceRate",
                                     groupBy = "databaseId",
-                                    plotTitle = "Incidence Rate over time",
                                     xLabel = "Calendar year",
                                     yLabel = "Incidence Rate",
                                     useMinimalTheme = TRUE,
@@ -358,7 +352,7 @@ plotSimpleTemporalTrend <- function(data,
   colors <- OhdsiRPlots::createOhdsiPalette(numColors = numColors)
   colorMapping <- setNames(colors, unique(data[[groupBy]]))
   
-  plotTitle <- paste0(plotTitle, "\nObserved values only\n")
+  plotTitle <- paste0("Observed values only\n")
   
   p <- ggplot2::ggplot(data,
                        ggplot2::aes(
@@ -401,7 +395,6 @@ plotTemporalTrendExpectedObserved <- function(data,
                                               xAxisCol = "calendarYear",
                                               yAxisCol = c("expectedIncidenceRate", "incidenceRate"),
                                               groupBy = "databaseId",
-                                              plotTitle = "Incidence Rate over time",
                                               xLabel = "Calendar year",
                                               yLabel = "Incidence Rate",
                                               useMinimalTheme = TRUE,
@@ -417,8 +410,16 @@ plotTemporalTrendExpectedObserved <- function(data,
     numberOfSplinesUsed <- max(data$numberOfSplinesUsed)
   }
   
-  plotTitle <- paste0(plotTitle,
-                      paste0("\nObserved vs Expected. Splines used = ", numberOfSplinesUsed))
+  plotTitle <-
+    paste0(
+      "\nObserved vs Expected. Splines used = ",
+      numberOfSplinesUsed,
+      ". p-value: ",
+      data$p |> min() |> OhdsiHelpers::formatDecimalWithComma(decimalPlaces = 4),
+      ". ratio = ",
+      data$ratio |> min() |> OhdsiHelpers::formatDecimalWithComma(decimalPlaces = 4)
+    )
+  
   
   plotTitle <- if (min(data$stable) == 0) {
     plotTitle <- paste0(plotTitle, "\nUNSTABLE (FAILED Diagnostic)")
