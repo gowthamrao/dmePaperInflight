@@ -87,7 +87,6 @@ cohortCount |>
 
 
 #R2: stability----
-debug(checkTemporalStabilityForcohortDiagnosticsIncidenceRateData)
 temporalStabilityOutput <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
   cohortDiagnosticsIncidenceRateData = incidenceRate,
   cohort = cohort,
@@ -117,10 +116,6 @@ if (all(na.omit(temporalStabilityOutput$stable))) {
     dplyr::filter(stable == FALSE) |>
     View()
 }
-
-
-
-
 
 
 temporalStabilityOutput |>

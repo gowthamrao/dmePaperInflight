@@ -66,6 +66,8 @@ getPredictedCount <- function(data,
   # Add the predicted counts to the data
   data$expected <- as.double(predictions)
   
+  data$numberOfSplinesUsed <- numberOfSplines
+  
   # Arrange the data based on timeId and select the 'observed' and 'expected' columns
   data <- data |>
     dplyr::arrange(timeId) |>
@@ -183,8 +185,6 @@ checkIfCohortDiagnosticsIncidenceRateData <- function(data) {
   expected_columns <- c(
     "cohortCount",
     "personYears",
-    "gender",
-    "ageGroup",
     "calendarYear",
     "incidenceRate",
     "cohortId",
@@ -202,11 +202,18 @@ checkIfCohortDiagnosticsIncidenceRateData <- function(data) {
       !is.numeric(data$personYears) |
       !is.numeric(data$incidenceRate) |
       !is.numeric(data$cohortId) |
-      !is.character(data$gender) |
-      !is.character(data$ageGroup) |
       !is.character(data$calendarYear) |
       !is.character(data$databaseId)) {
     stop("Data types of some columns are not as expected.")
+  }
+  
+  if (data |>
+      dplyr::select(databaseId, calendarYear, cohortId) |>
+      nrow() != data |>
+      dplyr::select(databaseId, calendarYear, cohortId) |>
+      dplyr::distinct() |>
+      nrow()) {
+    stop("data is not unique by databaseId, calendarYear, cohortId")
   }
 }
 
@@ -221,9 +228,6 @@ checkIfCohortDiagnosticsIncidenceRateData <- function(data) {
 processCohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidenceRateData) {
   outputData <- cohortDiagnosticsIncidenceRateData |>
     dplyr::filter(personYears > 0) |> #remove any records with 0 or lower (below min cell count for privacy protection) person years
-    dplyr::filter(calendarYear != "") |>
-    dplyr::filter(ageGroup == '') |> # we are not using age stratified incidence rate for the diagnostic
-    dplyr::filter(gender == '') |> # we are not using gender stratified incidence rate for the diagnostic
     dplyr::mutate(
       # to adjust for min cell count privacy protection output in CohortDiagnostics
       cohortCount = abs(cohortCount),
@@ -231,16 +235,12 @@ processCohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidence
       incidenceRate = abs(incidenceRate),
       calendarYear = as.integer(calendarYear)
     ) |>
-    dplyr::select(
-      cohortId,
-      databaseId,
-      gender,
-      ageGroup,
-      calendarYear,
-      cohortCount,
-      personYears,
-      incidenceRate
-    ) |>
+    dplyr::select(cohortId,
+                  databaseId,
+                  calendarYear,
+                  cohortCount,
+                  personYears,
+                  incidenceRate) |>
     dplyr::mutate(calendarYear = as.Date(paste0(calendarYear, "-06-01"))) # mid year
   
   return(outputData)
@@ -270,7 +270,7 @@ checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDi
   observedCount <- processCohortDiagnosticsIncidenceRateData(cohortDiagnosticsIncidenceRateData = cohortDiagnosticsIncidenceRateData)
   
   combos <- observedCount |>
-    dplyr::select(cohortId, databaseId, gender, ageGroup) |>
+    dplyr::select(cohortId, databaseId) |>
     dplyr::distinct()
   
   output <- c()
@@ -284,7 +284,7 @@ checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDi
     combo <- combos[i, ]
     
     data <- observedCount |>
-      dplyr::inner_join(combo, by = c("cohortId", "databaseId", "gender", "ageGroup"))
+      dplyr::inner_join(combo, by = c("cohortId", "databaseId"))
     
     if (nrow(data) > 1) {
       predicted <- getPredictedCount(
@@ -298,10 +298,7 @@ checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDi
       
       predicted <- predicted |>
         dplyr::mutate(
-          expectedIncidenceRate = round(
-            x = (expected / personYears) * 1000,
-            digits = 4
-          ),
+          expectedIncidenceRate = round(x = (expected / personYears), digits = 10),
           expected = round(x = expected, digits = 4),
           observedExpectedCountRatio = round(x = observed / expected, digits = 4),
           observedExpectedIncidenceRateRatio = round(x = incidenceRate / expectedIncidenceRate, digits = 4),
@@ -361,11 +358,20 @@ plotSimpleTemporalTrend <- function(data,
   colors <- OhdsiRPlots::createOhdsiPalette(numColors = numColors)
   colorMapping <- setNames(colors, unique(data[[groupBy]]))
   
-  p <-
-    ggplot2::ggplot(data, ggplot2::aes(x = .data[[xAxisCol]], y = .data[[yAxisCol]], color = .data[[groupBy]])) +
+  plotTitle <- paste0(plotTitle, "\nObserved values only\n")
+  
+  p <- ggplot2::ggplot(data,
+                       ggplot2::aes(
+                         x = .data[[xAxisCol]],
+                         y = .data[[yAxisCol]],
+                         color = .data[[groupBy]],
+                         group = .data[[groupBy]]
+                       )) +
     ggplot2::geom_line() +
     ggplot2::geom_point() +
     ggplot2::scale_color_manual(values = colorMapping) +
+    ggplot2::scale_linetype_manual(values = c("solid")) +
+    ggplot2::scale_y_continuous(limits = c(0, NA)) + # Ensure y-axis starts at 0
     ggplot2::labs(
       title = plotTitle,
       x = xLabel,
@@ -388,132 +394,176 @@ plotSimpleTemporalTrend <- function(data,
 }
 
 
-createTemporalStabilityPlot <- function(data) {
-  # Format the title with unique data values
-  title <- paste0(
-    paste("Database Id:", unique(data$databaseId)),
-    "\n",
-    paste(
-      "Cohort: ",
-      unique(data$cohortName),
-      " (",
-      data$cohortId |> unique(),
-      ")"
-    ),
-    "\n",
-    paste(
-      "Overall ratio: ",
-      unique(data$ratio) |> OhdsiHelpers::formatDecimalWithComma(decimalPlaces = 2),
-      ", p-value",
-      unique(data$p) |> OhdsiHelpers::formatDecimalWithComma(decimalPlaces = 3)
-    )
-    # ,
-    # "\n",
-    # paste("Stable: ", as.logical(unique(data$stable)))
-  )
+
+
+
+plotTemporalTrendExpectedObserved <- function(data,
+                                              xAxisCol = "calendarYear",
+                                              yAxisCol = c("expectedIncidenceRate", "incidenceRate"),
+                                              groupBy = "databaseId",
+                                              plotTitle = "Incidence Rate over time",
+                                              xLabel = "Calendar year",
+                                              yLabel = "Incidence Rate",
+                                              useMinimalTheme = TRUE,
+                                              convertToPlotLy = FALSE) {
+  # Generate color palette based on unique database IDs
+  numColors <- length(unique(data[[groupBy]]))
+  colors <- OhdsiRPlots::createOhdsiPalette(numColors = numColors)
+  colorMapping <- setNames(colors, unique(data[[groupBy]]))
   
-  bgColor = "white"
+  numberOfSplinesUsed <- 0
   
-  color <- ifelse(max(data$stable) == 1, 'white', 'red')
-  
-  # Define a minimal theme with the custom background color and no grid lines
-  custom_theme <- function(bgColor) {
-    theme_minimal() +
-      theme(
-        plot.background = element_rect(fill = bgColor, color = bgColor),
-        panel.background = element_rect(fill = bgColor, color = bgColor),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        plot.margin = margin(
-          t = 10,
-          r = 10,
-          b = 0,
-          l = 10
-        )
-      )
+  if ('numberOfSplinesUsed' %in% colnames(data)) {
+    numberOfSplinesUsed <- max(data$numberOfSplinesUsed)
   }
   
-  # Create the upper plot
-  upper_plot <- ggplot(data, aes(x = calendarYear)) +
-    geom_line(aes(y = incidenceRate), color = "blue") +
-    geom_line(aes(y = expectedIncidenceRate),
-              color = "gray",
-              linetype = "dotted") +
-    labs(y = "Incidence Rate", x = NULL) +
-    custom_theme(color)
+  plotTitle <- paste0(plotTitle,
+                      paste0("\nObserved vs Expected. Splines used = ", numberOfSplinesUsed))
   
-  # Create the lower plot
-  lower_plot <- ggplot(data, aes(x = calendarYear, y = abs(percentageDeviation))) +
-    geom_bar(stat = "identity", aes(fill = deviationDirection)) +
-    scale_fill_manual(values = c("Under" = "orange", "Over" = "gray")) +
-    scale_y_continuous(limits = c(0, 100),
-                       labels = scales::percent_format(scale = 1)) +
-    labs(y = "Abs Percentage Deviation", x = "Calendar Year") +
-    custom_theme(color) +
-    theme(legend.position = "none")
+  plotTitle <- if (min(data$stable) == 0) {
+    plotTitle <- paste0(plotTitle, "\nUNSTABLE (FAILED Diagnostic)")
+  } else {
+    plotTitle <- paste0(plotTitle, "\nSTABLE (Did not fail diagnostic)")
+  }
   
-  # Combine the plots
-  final_plot <- invisible(
-    gridExtra::grid.arrange(
-      upper_plot,
-      lower_plot,
-      ncol = 1,
-      heights = c(4, 1),
-      top = grid::textGrob(
-        x = 0,
-        y = 0,
-        title,
-        gp = grid::gpar(fontsize = 14, fontface = "bold"),
-        just = "left",
-        vjust = 1
+  p <- ggplot2::ggplot(data) +
+    ggplot2::geom_line(
+      ggplot2::aes(
+        x = .data[[xAxisCol]],
+        y = .data[[yAxisCol[1]]],
+        color = .data[[groupBy]],
+        group = .data[[groupBy]],
+        linetype = "Expected"
       )
+    ) +
+    ggplot2::geom_line(
+      ggplot2::aes(
+        x = .data[[xAxisCol]],
+        y = .data[[yAxisCol[2]]],
+        color = .data[[groupBy]],
+        group = .data[[groupBy]],
+        linetype = "Observed"
+      )
+    ) +
+    ggplot2::scale_color_manual(values = colorMapping) +
+    ggplot2::scale_linetype_manual(values = c("Expected" = "dashed", "Observed" = "solid")) +
+    ggplot2::scale_y_continuous(limits = c(0, NA)) + # Ensure y-axis starts at 0
+    ggplot2::labs(
+      title = plotTitle,
+      x = xLabel,
+      y = yLabel,
+      color = "Database ID",
+      linetype = "Incidence Type"
     )
-  )
   
-  # Return the final plot object
-  return(final_plot)
+  if (useMinimalTheme) {
+    p <- p + ggplot2::theme_minimal()
+  }
+  
+  if (convertToPlotLy) {
+    # Convert ggplot object to plotly for interactive visualization
+    p_plotly <-
+      plotly::ggplotly(p, tooltip = c("x", "y", groupBy, "linetype")) # Set tooltip to show data from specific columns
+    return(p_plotly)
+  } else {
+    return(p)
+  }
 }
 
 
 
-
-# Wrapper function that processes the data and generates the trellis of plots
-createTrellisOfPlots <- function(data) {
-  library(ggplot2)
-  library(gridExtra)
+createFakeIncidenceRateData <- function(numberOfYears,
+                                        cohortId,
+                                        databaseId,
+                                        pattern = "random",
+                                        incidenceRateMin = 0.001,
+                                        # Set a positive minimum to avoid division by zero
+                                        incidenceRateMax = 0.02,
+                                        cohortCountMin = 10,
+                                        # Ensure a minimum positive count
+                                        cohortCountMax = 10000,
+                                        errorMagnitude = 0.01) {
+  # Percentage of random error
   library(dplyr)
-  # Unique combinations of cohortName and databaseName
-  combinations <- unique(data[c("cohortName", "databaseName")])
+  library(tibble)
   
-  # List to store plots
-  plot_list <- vector("list", length(combinations))
+  # Generate base years and cohort counts
+  calendarYear <- seq(from = 2024,
+                      length.out = numberOfYears,
+                      by = -1)
+  cohortCount <- round(runif(numberOfYears, min = cohortCountMin, max = cohortCountMax))
   
-  # Generate a plot for each combination
-  for (i in seq_along(combinations$cohortName)) {
-    subset_data <- data %>%
-      filter(
-        cohortName == combinations$cohortName[i],
-        databaseName == combinations$databaseName[i]
-      )
-    
-    if (nrow(subset_data) > 0) {
-      plot_list[[i]] <- createTemporalStabilityPlot(subset_data)
-    } else {
-      plot_list[[i]] <- NULL # Leave empty if no data
+  # Pattern-specific incidence rate generation
+  incidenceRate <- numeric(numberOfYears)
+  switch(
+    pattern,
+    stable = {
+      rate <- runif(1, incidenceRateMin, incidenceRateMax)
+      incidenceRate <- rep(rate, numberOfYears)
+    },
+    monotonic = {
+      incidenceRate <- seq(incidenceRateMin, incidenceRateMax, length.out = numberOfYears)
+    },
+    random = {
+      incidenceRate <- runif(numberOfYears, incidenceRateMin, incidenceRateMax)
+    },
+    changePoints = {
+      changePoint <- sample(2:(numberOfYears - 1), 1)
+      incidenceRate[1:changePoint] <- runif(1, incidenceRateMin, incidenceRateMax)
+      incidenceRate[(changePoint + 1):numberOfYears] <- runif(1, incidenceRateMin, incidenceRateMax)
+    },
+    exponential = {
+      incidenceRate <- incidenceRateMin * exp(seq(
+        log(1),
+        log(1 + incidenceRateMax - incidenceRateMin),
+        length.out = numberOfYears
+      ))
+    },
+    stepwise = {
+      stepChange <- round(numberOfYears / 2)
+      incidenceRate[1:stepChange] <- incidenceRateMin
+      incidenceRate[(stepChange + 1):numberOfYears] <- incidenceRateMax
+    },
+    cyclic = {
+      period <- 4
+      for (i in 1:numberOfYears) {
+        incidenceRate[i] <- incidenceRateMin + (incidenceRateMax - incidenceRateMin) * abs(sin(2 * pi * i / period))
+      }
+    },
+    autoregressive = {
+      incidenceRate[1] <- runif(1, incidenceRateMin, incidenceRateMax)
+      for (i in 2:numberOfYears) {
+        incidenceRate[i] <- max(incidenceRateMin,
+                                0.5 * incidenceRate[i - 1] + runif(1, -0.01, 0.01))
+      }
+    },
+    randomWalk = {
+      incidenceRate[1] <- runif(1, incidenceRateMin, incidenceRateMax)
+      for (i in 2:numberOfYears) {
+        incidenceRate[i] <- incidenceRate[i - 1] + runif(1, -0.01, 0.01)
+        incidenceRate[i] <- max(incidenceRateMin,
+                                min(incidenceRate[i], incidenceRateMax))
+      }
     }
-  }
-  
-  # Grid dimensions
-  n_cols <- 3
-  n_rows <- ceiling(length(plot_list) / n_cols)
-  
-  # Create a trellis layout of the plots
-  plot_grid <- gridExtra::grid.arrange(
-    grobs = plot_list,
-    ncol = n_cols,
-    nrow = n_rows,
-    top = "Trellis of Temporal Stability Plots"
   )
   
-  return(plot_grid)
+  # Add random error to each pattern
+  error <- runif(numberOfYears, -errorMagnitude, errorMagnitude) * incidenceRate
+  incidenceRate <- pmax(incidenceRate + error, 0.0001)  # Apply error and ensure positivity
+  
+  # Calculate person years and correct if zero to prevent division by zero
+  personYears <- round(cohortCount / incidenceRate)
+  personYears <- ifelse(personYears == 0, 1, personYears)  # Ensure personYears is not zero
+  
+  # Generate the tibble
+  output <- tibble(
+    calendarYear = as.character(calendarYear),
+    cohortId = cohortId,
+    databaseId = databaseId,
+    incidenceRate = incidenceRate,
+    cohortCount = cohortCount,
+    personYears = personYears
+  )
+  
+  return(output)
 }
