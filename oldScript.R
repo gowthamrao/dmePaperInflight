@@ -12,14 +12,13 @@ databaseIdsOfInterest <- c(
   'cdm_jmdc_v2554',
   'cdm_optum_ehr_v2577',
   'cdm_optum_extended_dod_v2553',
-  'cdm_premier_v2543',
+  # 'cdm_premier_v2543',
   'cdm_truven_ccae_v2542',
   'cdm_truven_mdcd_v2565',
   'cdm_truven_mdcr_v2540'
 )
 
 yearRange <- c(2001:2024) |> as.character()
-
 
 # what is the name of the schema you want to upload to?
 resultsSchema <- 'Icpe2023Dme' # change to your schema
@@ -49,12 +48,14 @@ resultsSchema <- 'Icpe2023Dme' # change to your schema
 #   snakeCaseToCamelCase = TRUE
 # ) |> dplyr::tibble()
 # saveRDS(object = incidenceRate, file = "incidenceRate.rds")
-incidenceRate <- readRDS(file = "incidenceRate.rds")|>
+incidenceRate <- readRDS(file = "incidenceRate.rds") |>
   dplyr::filter(databaseId %in% databaseIdsOfInterest,
-                calendarYear %in% yearRange)|>
+                calendarYear %in% yearRange) |>
   dplyr::filter(calendarYear != "") |>
   dplyr::filter(ageGroup == '') |> # we are not using age stratified incidence rate for the diagnostic
-  dplyr::filter(gender == '') # we are not using gender stratified incidence rate for the diagnostic
+  dplyr::filter(gender == '') |>  # we are not using gender stratified incidence rate for the diagnostic
+  dplyr::mutate(cohortCount = abs(cohortCount),
+                incidenceRate = abs(incidenceRate))
 
 # cohort <- DatabaseConnector::renderTranslateQuerySql(
 #   connection = connection,
@@ -65,7 +66,6 @@ incidenceRate <- readRDS(file = "incidenceRate.rds")|>
 # saveRDS(object = cohort, file = "cohort.rds")
 cohort <- readRDS(file = "cohort.rds")
 
-
 # cohortCount <- DatabaseConnector::renderTranslateQuerySql(
 #   connection = connection,
 #   sql = "SELECT * FROM @results_database_schema.cohort_count;",
@@ -73,7 +73,11 @@ cohort <- readRDS(file = "cohort.rds")
 #   snakeCaseToCamelCase = TRUE
 # ) |> dplyr::tibble()
 # saveRDS(object = cohortCount, file = "cohortCount.rds")
-cohortCount <- readRDS(file = "cohortCount.rds")
+cohortCount <- readRDS(file = "cohortCount.rds") |>
+  dplyr::mutate(
+    cohortEntries = abs(cohortEntries),
+    cohortSubjects = abs(cohortSubjects)
+  )
 
 
 #R1: cohort counts----
@@ -89,63 +93,109 @@ cohortCount <- readRDS(file = "cohortCount.rds")
 #   dplyr::arrange(dplyr::desc(cdm_optum_extended_dod_v2553)) |>
 #   View()
 
-
-### check the changes for zero count - is it really needed?
 #R2: stability----
-temporalStabilityOutputWithZeroCount <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
+temporalStabilityOutput <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
   cohortDiagnosticsIncidenceRateData = incidenceRate,
   cohort = cohort,
-  maxNumberOfSplines = NULL,
+  maxNumberOfSplines = 5,
   splineTickInterval = 3
 )
 
-if (all(na.omit(temporalStabilityOutputWithZeroCount$stable))) {
+report <- temporalStabilityOutput |>
+  dplyr::select(cohortId, cohortName, databaseId, stable) |>
+  dplyr::distinct()  |>
+  dplyr::mutate(stable = dplyr::case_when(
+    is.na(stable) ~ "Not tested",
+    stable == FALSE ~ "Unstable",
+    TRUE ~ ""
+  )) |> 
+  tidyr::pivot_wider(
+    id_cols = c(cohortId, cohortName),
+    names_from = databaseId,
+    values_from = stable
+  )
+
+if (all(na.omit(temporalStabilityOutput$stable))) {
   writeLines("All incidence rate data are stable over time")
 } else {
   writeLines("Some incidence rate data are not stable over time")
-  temporalStabilityOutputWithZeroCount |>
+  temporalStabilityOutput |>
     dplyr::filter(stable == FALSE) |>
     View()
 }
 
-temporalStabilityOutputWithoutZeroCount <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
-  cohortDiagnosticsIncidenceRateData = incidenceRate,
-  cohort = cohort,
-  filterZeroAndLowCountRecords = TRUE,
-  maxNumberOfSplines = NULL,
-  splineTickInterval = 3
-)
-if (all(na.omit(temporalStabilityOutputWithoutZeroCount$stable))) {
-  writeLines("All incidence rate data are stable over time")
-} else {
-  writeLines("Some incidence rate data are not stable over time")
-  temporalStabilityOutputWithoutZeroCount |>
-    dplyr::filter(stable == FALSE) |>
-    View()
+
+
+
+
+
+temporalStabilityOutput |>
+  dplyr::select(cohortId, cohortName, databaseId, ratio, p, stable) |>
+  dplyr::distinct() |>
+  # dplyr::filter(stable == FALSE) |>
+  dplyr::arrange(stable, cohortId, cohortName, databaseId) |>
+  dplyr::mutate(
+    ratio = OhdsiHelpers::formatDecimalWithComma(ratio),
+    p = OhdsiHelpers::formatDecimalWithComma(p, decimalPlaces = 5)
+  ) |> View()
+
+
+#R3 plot observed and expected
+
+# R3: do some simple plots - all database
+
+dataToTryPlot <- temporalStabilityOutput |> 
+  dplyr::mutate(databaseName = databaseId) |> 
+  dplyr::filter(cohortId == 207)
+
+
+undebug(createTrellisOfPlots)
+createTrellisOfPlots(data = dataToTryPlot)
+
+
+
+
+
+cohortIds <- temporalStabilityOutput$cohortId |> unique() |> sort()
+databaseIds <- temporalStabilityOutput$databaseId |> unique() |> sort()
+
+plotsIncidenceRateCompareObservedExpected <- c()
+for (i in (1:length(cohortIds))) {
+  
+  data <- temporalStabilityOutput |>
+    dplyr::filter(cohortId == cohortIdToReport,
+                  databaseId == databaseIdToReport) |>
+    dplyr::filter(evaluated == TRUE)
+  
+
+  
+  plotsIncidenceRateCompareObservedExpected[[cohortIdToReport]][[databaseIdToReport]] <- createTemporalStabilityPlot(data, bgColor = color)
+  
 }
 
-temporalStabilityOutput <- dplyr::bind_rows(
-  temporalStabilityOutputWithZeroCount |> dplyr::mutate(useZeroCount = 1),
-  temporalStabilityOutputWithoutZeroCount |> dplyr::mutate(useZeroCount = 0)
-)
+
 
 # R3: do some simple plots - all database
 cohortIds <- incidenceRate$cohortId |> unique() |> sort()
 plotsIncidenceRateSimple <- c()
 for (i in (1:length(cohortIds))) {
+  cohortIdToReport <- cohortIds[i]
+  
+  cohortIdToReport <- 222
+  
   data <- incidenceRate |>
-    dplyr::filter(cohortId == cohortIds[i])
+    dplyr::filter(cohortId == cohortIdToReport)
   
   checkIfCohortDiagnosticsIncidenceRateData(data)
   
   incidenceRateData <- processCohortDiagnosticsIncidenceRateData(cohortDiagnosticsIncidenceRateData = data)
   
   plotTitle <- paste0(
-    paste("Cohort ID:", cohortIds[i]),
+    paste("Cohort ID:", cohortIdToReport),
     "\n",
     paste0(
       cohort |>
-        dplyr::filter(cohortId == cohortIds[i]) |>
+        dplyr::filter(cohortId == cohortIdToReport) |>
         dplyr::pull(cohortName)
     )
   )
@@ -172,7 +222,7 @@ cohortIds <- incidenceRate$cohortId |> unique() |> sort()
 plotsIncidenceRateSimple <- c()
 for (i in (1:length(cohortIds))) {
   data <- incidenceRate |>
-    dplyr::filter(cohortId == cohortIds[i]) |> 
+    dplyr::filter(cohortId == cohortIds[i]) |>
     dplyr::filter(databaseId != 'cdm_premier_v2543')
   
   checkIfCohortDiagnosticsIncidenceRateData(data)
@@ -200,10 +250,12 @@ plot_list <- plotsIncidenceRateSimple
 combined_plot <- gridExtra::marrangeGrob(plot_list, ncol = 1, nrow = 1)
 
 # Now you can save the combined plot as PDF
-ggplot2::ggsave("simpleTrendPlotsNoPremier.pdf",
-                combined_plot,
-                width = 11,
-                height = 8.5)  # Adjust the width and height as needed
+ggplot2::ggsave(
+  "simpleTrendPlotsNoPremier.pdf",
+  combined_plot,
+  width = 11,
+  height = 8.5
+)  # Adjust the width and height as needed
 
 
 # todo

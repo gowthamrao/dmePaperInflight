@@ -9,7 +9,6 @@
 #' @param personTimeField The field in the data frame that represents the person time.
 #' @param maxNumberOfSplines The maximum number of splines to use in the model. If NULL, the default is 5.
 #' @param splineTickInterval The interval at which to place the splines. The default is 3.
-#' @param zeroCountAdjustment A logical value indicating whether to adjust for zero counts. If TRUE, a small constant is added to avoid log(0).
 #' @return A data frame with the observed and expected counts.
 #' @export
 getPredictedCount <- function(data,
@@ -17,8 +16,7 @@ getPredictedCount <- function(data,
                               countField,
                               personTimeField,
                               maxNumberOfSplines = NULL,
-                              splineTickInterval = 3,
-                              zeroCountAdjustment = TRUE) {
+                              splineTickInterval = 3) {
   # Check if there are duplicate records for the same timeSequenceField
   if (length(data[[timeSequenceField]]) != length(data[[timeSequenceField]] |> unique())) {
     stop("Cant have more than one record per ", timeSequenceField)
@@ -33,28 +31,22 @@ getPredictedCount <- function(data,
     dplyr::arrange(timeSequenceField) |>
     dplyr::mutate(timeId = dplyr::row_number())
   
-  # If all observed values are 0, return the data with 'expected' column filled with 0s
-  if (all(data$observed == 0)) {
-    data$expected <- 0
-    return(data)
-  }
-  
   # Set the default value for maxNumberOfSplines if it's NULL
   if (is.null(maxNumberOfSplines)) {
     maxNumberOfSplines <- 5
   }
   
+  numberOfXAxisTicks <- length(unique(data$timeId))
+  
   # Determine the number of splines based on the number of unique timeId values
   numberOfSplines <-
-    min(maxNumberOfSplines, ceiling(length(unique(data$timeId)) / splineTickInterval)) # we will put a spline for every 3 ticks
+    min(maxNumberOfSplines,
+        ceiling(numberOfXAxisTicks / splineTickInterval)) # we will put a spline for every 3 ticks
   
   # Create a Cyclops data object using the observed counts, timeId, and personTimeField
   # The formula used here is a Poisson regression model with natural splines
-  offsetTerm <- if (zeroCountAdjustment) {
-    paste0("offset(log(", personTimeField, " + 1e-8))") # adding small constant to avoid log(0)
-  } else {
-    paste0("offset(log(", personTimeField, "))")
-  }
+  offsetTerm <- paste0("offset(log(", personTimeField, "))")
+  
   model <- Cyclops::createCyclopsData(formula =
                                         as.formula(
                                           paste(
@@ -74,16 +66,13 @@ getPredictedCount <- function(data,
   # Add the predicted counts to the data
   data$expected <- as.double(predictions)
   
+  data$numberOfSplinesUsed <- numberOfSplines
+  
   # Arrange the data based on timeId and select the 'observed' and 'expected' columns
   data <- data |>
     dplyr::arrange(timeId) |>
     dplyr::select(-timeId) |>
-    dplyr::tibble() |>
-    dplyr::select("observed", "expected")
-  
-  #replace NA in expected with observed values
-  data <- data |>
-    dplyr::mutate(expected = ifelse(is.na(expected), observed, expected))
+    dplyr::tibble()
   
   return(data)
 }
@@ -98,59 +87,40 @@ getPredictedCount <- function(data,
 #' @param data A data frame that contains the columns 'observed' and 'expected'.
 #' @param maxRatio The maximum ratio for the likelihood comparison. If NULL, the default is 1.25.
 #' @param alpha The significance level for the likelihood ratio test. If NULL, the default is 0.05.
-#' @param zeroCountAdjustment A logical value indicating whether to adjust for zero counts. If TRUE, a small constant is added to avoid log(0).
 #' @return A data frame with the ratio, p-value, and stability indicator.
 #' @export
 likelihoodComparison <- function(data,
                                  maxRatio = 1.25,
-                                 alpha = 0.05,
-                                 zeroCountAdjustment = TRUE) {
+                                 alpha = 0.05) {
   observed <- data$observed
   expected <- data$expected
+  
   # From https://cdsmithus.medium.com/the-logarithm-of-a-sum-69dd76199790
-  smoothMax <- function(x, y, zeroCountAdjustment) {
+  smoothMax <- function(x, y) {
     smoothMax <- ifelse(
       test = abs(x - y) > 100,
       yes = pmax(x, y),
-      no = if (zeroCountAdjustment) {
-        x + log(1 + exp(y - x + 1e-8)) # adding a small constant
-      } else {
-        x + log(1 + exp(y - x))
-      }
+      no = x + log(1 + exp(y - x))
     )
     return(smoothMax)
   }
   
-  logLikelihood <- function(x, zeroCountAdjustment) {
-    xTerm <- if (zeroCountAdjustment) {
-      dpois(observed, expected * x + 1e-8, log = TRUE) # adding a small constant
-    } else {
-      dpois(observed, expected * x, log = TRUE)
-    }
-    yTerm <- if (zeroCountAdjustment) {
-      dpois(observed, expected / x + 1e-8, log = TRUE) # adding a small constant
-    } else {
-      dpois(observed, expected / x, log = TRUE)
-    }
-    return(-sum(
-      smoothMax(
-        x = xTerm,
-        y = yTerm,
-        zeroCountAdjustment = zeroCountAdjustment
-      )
-    ))
+  logLikelihood <- function(x) {
+    xTerm <- dpois(observed, expected * x, log = TRUE)
+    yTerm <- dpois(observed, expected / x, log = TRUE)
+    return(-sum(smoothMax(x = xTerm, y = yTerm)))
   }
   
-  likelihood <- function(x, zeroCountAdjustment) {
-    return(exp(-logLikelihood(x, zeroCountAdjustment)))
+  likelihood <- function(x) {
+    return(exp(-logLikelihood(x)))
   }
   
-  vectorLikelihood <- function(x, zeroCountAdjustment) {
-    return(sapply(x, likelihood, zeroCountAdjustment = zeroCountAdjustment))
+  vectorLikelihood <- function(x) {
+    return(sapply(x, likelihood))
   }
   
   x <- seq(1, 10, by = 0.1)
-  ll <- sapply(x, logLikelihood, zeroCountAdjustment = zeroCountAdjustment)
+  ll <- sapply(x, logLikelihood)
   
   indices <- which(!is.na(ll) & !is.infinite(ll))
   if (length(indices) > 0) {
@@ -167,22 +137,11 @@ likelihoodComparison <- function(data,
     logLikelihood,
     lower = minX,
     upper = maxX,
-    method = "L-BFGS-B",
-    zeroCountAdjustment = zeroCountAdjustment
+    method = "L-BFGS-B"
   )$par
   
-  l0 <- integrate(
-    vectorLikelihood,
-    lower = 1,
-    upper = maxRatio,
-    zeroCountAdjustment = zeroCountAdjustment
-  )$value
-  l1 <- integrate(
-    vectorLikelihood,
-    lower = maxRatio,
-    upper = Inf,
-    zeroCountAdjustment = zeroCountAdjustment
-  )$value
+  l0 <- integrate(vectorLikelihood, lower = 1, upper = maxRatio)$value
+  l1 <- integrate(vectorLikelihood, lower = maxRatio, upper = Inf)$value
   
   llr <- 2 * (log(l1) - log(l0))
   if (is.nan(llr)) {
@@ -221,8 +180,6 @@ checkIfCohortDiagnosticsIncidenceRateData <- function(data) {
   expected_columns <- c(
     "cohortCount",
     "personYears",
-    "gender",
-    "ageGroup",
     "calendarYear",
     "incidenceRate",
     "cohortId",
@@ -240,11 +197,18 @@ checkIfCohortDiagnosticsIncidenceRateData <- function(data) {
       !is.numeric(data$personYears) |
       !is.numeric(data$incidenceRate) |
       !is.numeric(data$cohortId) |
-      !is.character(data$gender) |
-      !is.character(data$ageGroup) |
       !is.character(data$calendarYear) |
       !is.character(data$databaseId)) {
     stop("Data types of some columns are not as expected.")
+  }
+  
+  if (data |>
+      dplyr::select(databaseId, calendarYear, cohortId) |>
+      nrow() != data |>
+      dplyr::select(databaseId, calendarYear, cohortId) |>
+      dplyr::distinct() |>
+      nrow()) {
+    stop("data is not unique by databaseId, calendarYear, cohortId")
   }
 }
 
@@ -259,26 +223,19 @@ checkIfCohortDiagnosticsIncidenceRateData <- function(data) {
 processCohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidenceRateData) {
   outputData <- cohortDiagnosticsIncidenceRateData |>
     dplyr::filter(personYears > 0) |> #remove any records with 0 or lower (below min cell count for privacy protection) person years
-    dplyr::filter(calendarYear != "") |>
-    dplyr::filter(ageGroup == '') |> # we are not using age stratified incidence rate for the diagnostic
-    dplyr::filter(gender == '') |> # we are not using gender stratified incidence rate for the diagnostic
     dplyr::mutate(
-      cohortCount = abs(cohortCount),
       # to adjust for min cell count privacy protection output in CohortDiagnostics
+      cohortCount = abs(cohortCount),
       personYears = abs(personYears),
-      incidenceRate = abs(cohortCount) / abs(personYears),
+      incidenceRate = abs(incidenceRate),
       calendarYear = as.integer(calendarYear)
     ) |>
-    dplyr::select(
-      cohortId,
-      databaseId,
-      gender,
-      ageGroup,
-      calendarYear,
-      cohortCount,
-      personYears,
-      incidenceRate
-    ) |>
+    dplyr::select(cohortId,
+                  databaseId,
+                  calendarYear,
+                  cohortCount,
+                  personYears,
+                  incidenceRate) |>
     dplyr::mutate(calendarYear = as.Date(paste0(calendarYear, "-06-01"))) # mid year
   
   return(outputData)
@@ -287,38 +244,29 @@ processCohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidence
 
 #' Check Temporal Stability For Cohort Diagnostics Incidence Rate Data
 #'
-#' This function checks the temporal stability of the cohort diagnostics incidence rate data. It processes the data, calculates the predicted counts, and compares the likelihoods. The function also adds a flag to indicate whether the data was evaluated and whether it is stable.
+#' This function checks the temporal stability of the cohort diagnostics incidence rate data. It processes the data, calculates the predicted counts, and compares the likelihoods.
 #'
 #' @param cohortDiagnosticsIncidenceRateData A data frame that contains the columns cohortId, databaseId, gender, ageGroup, calendarYear, cohortCount, personYears, and incidenceRate.
 #' @param cohort A data frame that contains the columns cohortId and cohortName.
-#' @param filterZeroAndLowCountRecords A logical value indicating whether to remove records from the observed data that have zero persons in the cohort during the calendar period or records that fall below the privacy protecting minimum threshold specified during the cohort diagnostics run. If set to TRUE, the function will exclude these records from the analysis. Default is FALSE.
 #' @param maxNumberOfSplines The maximum number of splines to use in the model. If NULL, the default is 5.
 #' @param splineTickInterval The interval at which to place the splines. The default is 3.
-#' @return A data frame with the cohortId, databaseId, gender, ageGroup, evaluated flag, stable flag, and isUnstable flag.
+#' @return A data frame with the cohortId, databaseId, gender, ageGroup, stable flag, and isUnstable flag.
+#' @param maxRatio The maximum ratio for the likelihood comparison. If NULL, the default is 1.25.
+#' @param alpha The significance level for the likelihood ratio test. If NULL, the default is 0.05.
 #' @export
 checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidenceRateData,
                                                                         cohort,
-                                                                        filterZeroAndLowCountRecords = FALSE,
                                                                         maxNumberOfSplines = NULL,
-                                                                        splineTickInterval = 3) {
-  zeroCountAdjustment <- TRUE
+                                                                        splineTickInterval = 3,
+                                                                        maxRatio = 1.25,
+                                                                        alpha = 0.05) {
   checkIfCohortDiagnosticsIncidenceRateData(cohortDiagnosticsIncidenceRateData)
-  
-  # If filterZeroAndLowCountRecords is TRUE, remove records with zero persons in the cohort or records below the minimum threshold
-  if (filterZeroAndLowCountRecords) {
-    cohortDiagnosticsIncidenceRateData <- cohortDiagnosticsIncidenceRateData |>
-      dplyr::filter(cohortCount > 0) # this also removes records that have negative values i.e. below threshold
-    writeLines(
-      "Cohort periods with zero counts or those below the privacy protecting minimum threshold value are removed from analysis."
-    )
-  }
   
   observedCount <- processCohortDiagnosticsIncidenceRateData(cohortDiagnosticsIncidenceRateData = cohortDiagnosticsIncidenceRateData)
   
   combos <- observedCount |>
-    dplyr::select(cohortId, databaseId, gender, ageGroup) |>
-    dplyr::distinct() |>
-    dplyr::mutate(rn = dplyr::row_number())
+    dplyr::select(cohortId, databaseId) |>
+    dplyr::distinct()
   
   output <- c()
   
@@ -331,12 +279,7 @@ checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDi
     combo <- combos[i, ]
     
     data <- observedCount |>
-      dplyr::inner_join(combo, by = c("cohortId", "databaseId", "gender", "ageGroup"))
-    
-    output[[i]] <- dplyr::tibble(ratio = 0,
-                                 p = 0,
-                                 evaluated = FALSE) |>
-      tidyr::crossing(combo)
+      dplyr::inner_join(combo, by = c("cohortId", "databaseId"))
     
     if (nrow(data) > 1) {
       predicted <- getPredictedCount(
@@ -344,20 +287,24 @@ checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDi
         timeSequenceField = "calendarYear",
         countField = "cohortCount",
         personTimeField = "personYears",
-        zeroCountAdjustment = zeroCountAdjustment,
-        maxNumberOfSplines = NULL,
+        maxNumberOfSplines = maxNumberOfSplines,
         splineTickInterval = 3
       )
       
       predicted <- predicted |>
-        dplyr::mutate(observedExpectedRatio = observed / expected)
+        dplyr::mutate(
+          expectedIncidenceRate = round(x = (expected / personYears), digits = 10),
+          expected = round(x = expected, digits = 4),
+          observedExpectedCountRatio = round(x = observed / expected, digits = 4),
+          observedExpectedIncidenceRateRatio = round(x = incidenceRate / expectedIncidenceRate, digits = 4),
+          percentageDeviation = (observed - expected) / expected * 100
+        )
       
-      if (nrow(data) == nrow(predicted)) {
-        output[[i]] <- predicted |>
-          likelihoodComparison(zeroCountAdjustment = zeroCountAdjustment) |>
-          tidyr::crossing(combo) |>
-          dplyr::mutate(evaluated = TRUE)
-      }
+      likelihood <- predicted |>
+        likelihoodComparison(maxRatio = maxRatio, alpha = alpha)
+      
+      output[[i]] <- data |>
+        dplyr::left_join(likelihood, by = colnames(data))
     }
     
     # Update the progress bar
@@ -368,7 +315,6 @@ checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDi
   close(pb)
   
   output <- dplyr::bind_rows(output) |>
-    dplyr::select(-rn) |>
     dplyr::inner_join(cohort |>
                         dplyr::select(cohortId, cohortName), by = "cohortId") |>
     dplyr::relocate(cohortId, cohortName)
@@ -397,7 +343,6 @@ plotSimpleTemporalTrend <- function(data,
                                     xAxisCol = "calendarYear",
                                     yAxisCol = "incidenceRate",
                                     groupBy = "databaseId",
-                                    plotTitle = "Incidence Rate over time",
                                     xLabel = "Calendar year",
                                     yLabel = "Incidence Rate",
                                     useMinimalTheme = TRUE,
@@ -407,11 +352,20 @@ plotSimpleTemporalTrend <- function(data,
   colors <- OhdsiRPlots::createOhdsiPalette(numColors = numColors)
   colorMapping <- setNames(colors, unique(data[[groupBy]]))
   
-  p <-
-    ggplot2::ggplot(data, ggplot2::aes(x = .data[[xAxisCol]], y = .data[[yAxisCol]], color = .data[[groupBy]])) +
+  plotTitle <- paste0("Observed values only\n")
+  
+  p <- ggplot2::ggplot(data,
+                       ggplot2::aes(
+                         x = .data[[xAxisCol]],
+                         y = .data[[yAxisCol]],
+                         color = .data[[groupBy]],
+                         group = .data[[groupBy]]
+                       )) +
     ggplot2::geom_line() +
     ggplot2::geom_point() +
     ggplot2::scale_color_manual(values = colorMapping) +
+    ggplot2::scale_linetype_manual(values = c("solid")) +
+    ggplot2::scale_y_continuous(limits = c(0, NA)) + # Ensure y-axis starts at 0
     ggplot2::labs(
       title = plotTitle,
       x = xLabel,
@@ -431,4 +385,186 @@ plotSimpleTemporalTrend <- function(data,
   } else {
     return(p)
   }
+}
+
+
+
+
+
+plotTemporalTrendExpectedObserved <- function(data,
+                                              xAxisCol = "calendarYear",
+                                              yAxisCol = c("expectedIncidenceRate", "incidenceRate"),
+                                              groupBy = "databaseId",
+                                              xLabel = "Calendar year",
+                                              yLabel = "Incidence Rate",
+                                              useMinimalTheme = TRUE,
+                                              convertToPlotLy = FALSE) {
+  # Generate color palette based on unique database IDs
+  numColors <- length(unique(data[[groupBy]]))
+  colors <- OhdsiRPlots::createOhdsiPalette(numColors = numColors)
+  colorMapping <- setNames(colors, unique(data[[groupBy]]))
+  
+  numberOfSplinesUsed <- 0
+  
+  if ('numberOfSplinesUsed' %in% colnames(data)) {
+    numberOfSplinesUsed <- max(data$numberOfSplinesUsed)
+  }
+  
+  plotTitle <-
+    paste0(
+      "\nObserved vs Expected. Splines used = ",
+      numberOfSplinesUsed,
+      ". p-value: ",
+      data$p |> min() |> OhdsiHelpers::formatDecimalWithComma(decimalPlaces = 4),
+      ". ratio = ",
+      data$ratio |> min() |> OhdsiHelpers::formatDecimalWithComma(decimalPlaces = 4)
+    )
+  
+  
+  plotTitle <- if (min(data$stable) == 0) {
+    plotTitle <- paste0(plotTitle, "\nUNSTABLE (FAILED Diagnostic)")
+  } else {
+    plotTitle <- paste0(plotTitle, "\nSTABLE (Did not fail diagnostic)")
+  }
+  
+  p <- ggplot2::ggplot(data) +
+    ggplot2::geom_line(
+      ggplot2::aes(
+        x = .data[[xAxisCol]],
+        y = .data[[yAxisCol[1]]],
+        color = .data[[groupBy]],
+        group = .data[[groupBy]],
+        linetype = "Expected"
+      )
+    ) +
+    ggplot2::geom_line(
+      ggplot2::aes(
+        x = .data[[xAxisCol]],
+        y = .data[[yAxisCol[2]]],
+        color = .data[[groupBy]],
+        group = .data[[groupBy]],
+        linetype = "Observed"
+      )
+    ) +
+    ggplot2::scale_color_manual(values = colorMapping) +
+    ggplot2::scale_linetype_manual(values = c("Expected" = "dashed", "Observed" = "solid")) +
+    ggplot2::scale_y_continuous(limits = c(0, NA)) + # Ensure y-axis starts at 0
+    ggplot2::labs(
+      title = plotTitle,
+      x = xLabel,
+      y = yLabel,
+      color = "Database ID",
+      linetype = "Incidence Type"
+    )
+  
+  if (useMinimalTheme) {
+    p <- p + ggplot2::theme_minimal()
+  }
+  
+  if (convertToPlotLy) {
+    # Convert ggplot object to plotly for interactive visualization
+    p_plotly <-
+      plotly::ggplotly(p, tooltip = c("x", "y", groupBy, "linetype")) # Set tooltip to show data from specific columns
+    return(p_plotly)
+  } else {
+    return(p)
+  }
+}
+
+
+
+createFakeIncidenceRateData <- function(numberOfYears,
+                                        cohortId,
+                                        databaseId,
+                                        pattern = "random",
+                                        incidenceRateMin = 0.001,
+                                        # Set a positive minimum to avoid division by zero
+                                        incidenceRateMax = 0.02,
+                                        cohortCountMin = 10,
+                                        # Ensure a minimum positive count
+                                        cohortCountMax = 10000,
+                                        errorMagnitude = 0.01) {
+  # Percentage of random error
+  library(dplyr)
+  library(tibble)
+  
+  # Generate base years and cohort counts
+  calendarYear <- seq(from = 2024,
+                      length.out = numberOfYears,
+                      by = -1)
+  cohortCount <- round(runif(numberOfYears, min = cohortCountMin, max = cohortCountMax))
+  
+  # Pattern-specific incidence rate generation
+  incidenceRate <- numeric(numberOfYears)
+  switch(
+    pattern,
+    stable = {
+      rate <- runif(1, incidenceRateMin, incidenceRateMax)
+      incidenceRate <- rep(rate, numberOfYears)
+    },
+    monotonic = {
+      incidenceRate <- seq(incidenceRateMin, incidenceRateMax, length.out = numberOfYears)
+    },
+    random = {
+      incidenceRate <- runif(numberOfYears, incidenceRateMin, incidenceRateMax)
+    },
+    changePoints = {
+      changePoint <- sample(2:(numberOfYears - 1), 1)
+      incidenceRate[1:changePoint] <- runif(1, incidenceRateMin, incidenceRateMax)
+      incidenceRate[(changePoint + 1):numberOfYears] <- runif(1, incidenceRateMin, incidenceRateMax)
+    },
+    exponential = {
+      incidenceRate <- incidenceRateMin * exp(seq(
+        log(1),
+        log(1 + incidenceRateMax - incidenceRateMin),
+        length.out = numberOfYears
+      ))
+    },
+    stepwise = {
+      stepChange <- round(numberOfYears / 2)
+      incidenceRate[1:stepChange] <- incidenceRateMin
+      incidenceRate[(stepChange + 1):numberOfYears] <- incidenceRateMax
+    },
+    cyclic = {
+      period <- 4
+      for (i in 1:numberOfYears) {
+        incidenceRate[i] <- incidenceRateMin + (incidenceRateMax - incidenceRateMin) * abs(sin(2 * pi * i / period))
+      }
+    },
+    autoregressive = {
+      incidenceRate[1] <- runif(1, incidenceRateMin, incidenceRateMax)
+      for (i in 2:numberOfYears) {
+        incidenceRate[i] <- max(incidenceRateMin,
+                                0.5 * incidenceRate[i - 1] + runif(1, -0.01, 0.01))
+      }
+    },
+    randomWalk = {
+      incidenceRate[1] <- runif(1, incidenceRateMin, incidenceRateMax)
+      for (i in 2:numberOfYears) {
+        incidenceRate[i] <- incidenceRate[i - 1] + runif(1, -0.01, 0.01)
+        incidenceRate[i] <- max(incidenceRateMin,
+                                min(incidenceRate[i], incidenceRateMax))
+      }
+    }
+  )
+  
+  # Add random error to each pattern
+  error <- runif(numberOfYears, -errorMagnitude, errorMagnitude) * incidenceRate
+  incidenceRate <- pmax(incidenceRate + error, 0.0001)  # Apply error and ensure positivity
+  
+  # Calculate person years and correct if zero to prevent division by zero
+  personYears <- round(cohortCount / incidenceRate)
+  personYears <- ifelse(personYears == 0, 1, personYears)  # Ensure personYears is not zero
+  
+  # Generate the tibble
+  output <- tibble(
+    calendarYear = as.character(calendarYear),
+    cohortId = cohortId,
+    databaseId = databaseId,
+    incidenceRate = incidenceRate,
+    cohortCount = cohortCount,
+    personYears = personYears
+  )
+  
+  return(output)
 }
