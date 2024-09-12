@@ -1,7 +1,6 @@
-#' Get Predicted Count in a Data Frame
+#' Get Predicted event count in a Data Frame based on observed event and personTime.
 #'
-#' This function predicts the count of events in a data frame using a Poisson regression model with natural splines. It groups the data by timeSequenceField and fills in missing counts with predicted values.
-#' The function also adds a flag to indicate whether the data was imputed.
+#' This function predicts the count of events in a data frame using a Poisson regression model with natural splines. It sorts the data by timeSequenceField.
 #'
 #' @param data A data frame that contains the columns specified in the function parameters.
 #' @param timeSequenceField The field in the data frame that represents the time sequence.
@@ -17,6 +16,7 @@ getPredictedCount <- function(data,
                               personTimeField,
                               maxNumberOfSplines = NULL,
                               splineTickInterval = 3) {
+  
   # Check if there are duplicate records for the same timeSequenceField
   if (length(data[[timeSequenceField]]) != length(data[[timeSequenceField]] |> unique())) {
     stop("Cant have more than one record per ", timeSequenceField)
@@ -39,13 +39,25 @@ getPredictedCount <- function(data,
   numberOfXAxisTicks <- length(unique(data$timeId))
   
   # Determine the number of splines based on the number of unique timeId values
+  # The splines allow for a smooth, flexible fit to the time series data by introducing multiple degrees of freedom (df, determined by the numberOfSplines).
   numberOfSplines <-
     min(maxNumberOfSplines,
         ceiling(numberOfXAxisTicks / splineTickInterval)) # we will put a spline for every 3 ticks
   
   # Create a Cyclops data object using the observed counts, timeId, and personTimeField
   # The formula used here is a Poisson regression model with natural splines
+  
   offsetTerm <- paste0("offset(log(", personTimeField, "))")
+  
+  # The offset term (log(personTimeField)) adjusts predicted event counts for differences in exposure times, ensuring that predictions reflect event rates rather than raw counts.
+  # In Poisson regression, the log of the expected count is modeled as a linear function of the predictors. Using log(personTimeField) as the offset maintains the additive (vs multiplicative) relationship in the model.
+  # This allows the model to interpret the response variable as an event rate, adjusting for varying exposure times across observations.
+  
+  #The model is a Poisson regression (modelType = "pr"), meaning that the response variable (the observed counts) is assumed to follow a Poisson distribution (to model counts).
+ 
+  # Natural splines (splines::ns) are used to model the relationship between the time index (timeId) and observed counts (observed).
+  # The degrees of freedom (df = numberOfSplines) control the flexibility of the spline fit.
+  # Splines allow for a more flexible fit to time-dependent data, especially when the relationship between time and observed events is non-linear.
   
   model <- Cyclops::createCyclopsData(formula =
                                         as.formula(
