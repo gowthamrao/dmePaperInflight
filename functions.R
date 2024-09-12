@@ -88,7 +88,7 @@ getPredictedCount <- function(data,
   # # Fit the Poisson regression using glm() with the correct reference to the personTimeField column
   # # Try fitting Poisson regression using glm() and handle errors
   # tryCatch({
-  #   
+  #
   #   # assign default values
   #   data$glmExpected <- as.double(NA)
   #   data$glmExpectedLowerBound <- as.double(NA)
@@ -98,7 +98,7 @@ getPredictedCount <- function(data,
   #   data$glmPValueDeviance <- as.double(NA)
   #   data$glmPearsonChiSquare <- as.double(NA)
   #   data$glmPPValuePearson <- as.double(NA)
-  #   
+  #
   #   modelGlm <- glm(
   #     observed ~ splines::ns(timeId, df = numberOfSplines) + offset(log(data[[personTimeField]])),
   #     data = data,
@@ -110,17 +110,17 @@ getPredictedCount <- function(data,
   #                                    se.fit = TRUE)
   #   glmPredictedLog <- glmPredictions$fit
   #   seLog <- glmPredictions$se.fit
-  #   
+  #
   #   zValue <- qnorm(1 - alpha / 2)
-  #   
+  #
   #   glmLowerBoundLog <- glmPredictedLog - zValue * seLog
   #   glmUpperBoundLog <- glmPredictedLog + zValue * seLog
-  #   
+  #
   #   # Exponentiate to get the predicted counts and CIs on the original scale
   #   data$glmExpected <- as.double(exp(glmPredictedLog))
   #   data$glmExpectedLowerBound <- as.double(exp(glmLowerBoundLog))
   #   data$glmExpectedUpperBound <- as.double(exp(glmUpperBoundLog))
-  #   
+  #
   #   # Deviance Test (G-test)
   #   # In Poisson regression, the deviance measures the difference between the observed and expected counts under the model.
   #   # Get the deviance from the fitted model
@@ -129,21 +129,21 @@ getPredictedCount <- function(data,
   #   data$glmDegreesOfFreedom <- modelGlm$df.residual
   #   # Compute the p-value from the chi-square distribution
   #   data$glmPValueDeviance <- 1 - pchisq(modelGlm$deviance, modelGlm$df.residual)
-  #   
+  #
   #   # Pearson Chi-Squared Test - This test sums the squared differences between the observed and expected counts, scaled by the expected counts.
   #   # Compute Pearson's chi-squared test statistic
   #   data$glmPearsonChiSquare <- sum((data$observed - data$glmExpected) ^
   #                                     2 / data$glmExpected)
   #   # Compute p-value for the Pearson chi-squared test
   #   data$glmPPValuePearson <- 1 - pchisq(data$glmPearsonChiSquare, modelGlm$df.residual)
-  #   
+  #
   #   if (min(data$glmPearsonChiSquare,
   #           data$glmPPValuePearson) > alpha) {
   #     data$glmStable <- TRUE
   #   } else {
   #     data$glmStable <- FALSE
   #   }
-  #   
+  #
   # }, error = function(e) {
   #   # If there's an error, skip the glm part
   #   # message("\nError in glm fitting: ", e$message)
@@ -299,9 +299,11 @@ checkIfCohortDiagnosticsIncidenceRateData <- function(data) {
 #' This function processes the cohort diagnostics incidence rate data. It filters the data based on certain conditions, calculates the incidence rate, and imputes missing years.
 #'
 #' @param cohortDiagnosticsIncidenceRateData A data frame that contains the columns cohortId, databaseId, gender, ageGroup, calendarYear, cohortCount, personYears, and incidenceRate.
+#' @param removeOutlierZeroCounts (Default TRUE) Do you want to remove continous zero counts in the beginning and end in the time series?
 #' @return A data frame with processed cohort diagnostics incidence rate data.
 #' @export
-processCohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidenceRateData) {
+processCohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidenceRateData,
+                                                      removeOutlierZeroCounts = TRUE) {
   outputData <- cohortDiagnosticsIncidenceRateData |>
     dplyr::filter(personYears > 0) |> #remove any records with 0 or lower (below min cell count for privacy protection) person years
     dplyr::mutate(
@@ -317,7 +319,32 @@ processCohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidence
                   cohortCount,
                   personYears,
                   incidenceRate) |>
-    dplyr::mutate(calendarYear = as.Date(paste0(calendarYear, "-06-01"))) # mid year
+    dplyr::mutate(calendarYear = as.Date(paste0(calendarYear, "-06-01"))) |>  # mid year
+    dplyr::arrange(cohortId, databaseId, calendarYear) |>
+    dplyr::mutate(zeroRecordLeadRemoved = 0,
+                  zeroRecordTrailRemoved = 0)
+  
+  if (removeOutlierZeroCounts) {
+    outputData <- outputData |>
+      dplyr::group_by(cohortId, databaseId) |>
+      dplyr::arrange(calendarYear) |>
+      dplyr::mutate(
+        # Identify leading and trailing zeros
+        isZero = incidenceRate == 0,
+        leadZeros = cumsum(!isZero) == 0,
+        # Cumulative sum for leading zeros
+        trailZeros = rev(cumsum(rev(!isZero))) == 0  # Reverse cumulative sum for trailing zeros
+      ) |>
+      dplyr::mutate(
+        zeroRecordLeadRemoved = sum(leadZeros),
+        # Count lead zeros removed
+        zeroRecordTrailRemoved = sum(trailZeros) # Count trail zeros removed
+      ) |>
+      dplyr::filter(!(leadZeros |
+                        trailZeros)) |>   # Remove rows that are leading or trailing zeros
+      dplyr::select(-isZero, -leadZeros, -trailZeros) |>  # Clean up extra columns
+      dplyr::ungroup()
+  }
   
   return(outputData)
 }
@@ -331,19 +358,24 @@ processCohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidence
 #' @param cohort A data frame that contains the columns cohortId and cohortName.
 #' @param maxNumberOfSplines The maximum number of splines to use in the model. If NULL, the default is 5.
 #' @param splineTickInterval The interval at which to place the splines. The default is 3.
-#' @return A data frame with the cohortId, databaseId, gender, ageGroup, stable flag, and isUnstable flag.
+#' @param removeOutlierZeroCounts (Default TRUE) Do you want to remove continous zero counts in the beginning and end in the time series?
 #' @param maxRatio The maximum ratio for the likelihood comparison. If NULL, the default is 1.25.
 #' @param alpha The significance level for the likelihood ratio test. If NULL, the default is 0.05.
+#' @return A data frame with the cohortId, databaseId, gender, ageGroup, stable flag, and isUnstable flag.
 #' @export
 checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidenceRateData,
                                                                         cohort,
                                                                         maxNumberOfSplines = NULL,
                                                                         splineTickInterval = 3,
                                                                         maxRatio = 1.25,
-                                                                        alpha = 0.05) {
+                                                                        alpha = 0.05,
+                                                                        removeOutlierZeroCounts = TRUE) {
   checkIfCohortDiagnosticsIncidenceRateData(cohortDiagnosticsIncidenceRateData)
   
-  observedCount <- processCohortDiagnosticsIncidenceRateData(cohortDiagnosticsIncidenceRateData = cohortDiagnosticsIncidenceRateData)
+  observedCount <- processCohortDiagnosticsIncidenceRateData(
+    cohortDiagnosticsIncidenceRateData = cohortDiagnosticsIncidenceRateData,
+    removeOutlierZeroCounts = removeOutlierZeroCounts
+  )
   
   combos <- observedCount |>
     dplyr::select(cohortId, databaseId) |>
@@ -381,11 +413,14 @@ checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDi
             digits = 10
           ),
           cyclopsObservedExpectedCountRatio = round(x = observed / cyclopsExpected, digits = 4),
-          cyclopsObservedExpectedIncidenceRateRatio = round(x = incidenceRate / cyclopsExpectedIncidenceRate, digits = 4),
+          cyclopsObservedExpectedIncidenceRateRatio = round(
+            x = incidenceRate / cyclopsExpectedIncidenceRate,
+            digits = 4
+          ),
           cyclopsPercentageDeviation = (observed - cyclopsExpected) / cyclopsExpected * 100,
           cylopsExpected = round(x = cyclopsExpected, digits = 4)
           # ,
-          # 
+          #
           # ####
           # glmExpectedIncidenceRate = round(
           #   x = (glmExpected / personYears) * 1000,
@@ -486,7 +521,6 @@ plotTemporalTrendExpectedObserved <- function(data,
                                               useMinimalTheme = TRUE,
                                               convertToPlotLy = FALSE,
                                               plotSource = 'cyclops') {
-  
   if (plotSource == 'cyclops') {
     data$expected <- data$cyclopsExpected
     data$expectedIncidenceRate <- data$cyclopsExpectedIncidenceRate
@@ -513,7 +547,13 @@ plotTemporalTrendExpectedObserved <- function(data,
     ". p-value: ",
     OhdsiHelpers::formatDecimalWithComma(min(data$p), decimalPlaces = 4),
     ". ratio = ",
-    OhdsiHelpers::formatDecimalWithComma(min(data$ratio), decimalPlaces = 4)
+    OhdsiHelpers::formatDecimalWithComma(min(data$ratio), decimalPlaces = 4),
+    "\n",
+    min(data$zeroRecordLeadRemoved),
+    " records with lead (left) zero counts found and has been removed",
+    "\n",
+    min(data$zeroRecordTrailRemoved),
+    " records with trail (right) zero counts found and has been removed"
   )
   
   plotTitle <- if (min(data$stable) == 0) {
@@ -672,9 +712,8 @@ createPlotsByDatabaseId <- function(data, cohortId) {
 }
 
 
-summarizeTemporalStability <- function(temporalStabilityOutput, 
+summarizeTemporalStability <- function(temporalStabilityOutput,
                                        cylopsStatisticallyUnstable) {
-  
   # Calculate the counts for tested cohorts, databases, and combinations
   cohortsTested <- temporalStabilityOutput$cohortId |> unique() |> length()
   databasesTested <- temporalStabilityOutput$databaseId |> unique() |> length()
@@ -690,13 +729,30 @@ summarizeTemporalStability <- function(temporalStabilityOutput,
     "\n",
     "-----",
     "\n",
-    "Number of cohorts tested:", cohortsTested, "\n",
-    "Number of databases tested:", databasesTested, "\n",
-    "Number of combos tested:", combosTested, "\n",
-    "-----", "\n",
-    "Number of cohorts that failed in atleast one datasource:", OhdsiHelpers::formatCountPercent(count = cohortsFailed, percent = cohortsFailed/cohortsTested), "\n",
-    "Number of databases with atleast one cohort failed:", OhdsiHelpers::formatCountPercent(count = databasesFailed, percent = databasesFailed/databasesTested), "\n",
-    "Number of combos failed:", OhdsiHelpers::formatCountPercent(count = combosFailed, percent = combosFailed/combosTested), "\n",
-    "-----", "\n"
+    "Number of cohorts tested:",
+    cohortsTested,
+    "\n",
+    "Number of databases tested:",
+    databasesTested,
+    "\n",
+    "Number of combos tested:",
+    combosTested,
+    "\n",
+    "-----",
+    "\n",
+    "Number of cohorts that failed in atleast one datasource:",
+    OhdsiHelpers::formatCountPercent(count = cohortsFailed, percent = cohortsFailed /
+                                       cohortsTested),
+    "\n",
+    "Number of databases with atleast one cohort failed:",
+    OhdsiHelpers::formatCountPercent(count = databasesFailed, percent = databasesFailed /
+                                       databasesTested),
+    "\n",
+    "Number of combos failed:",
+    OhdsiHelpers::formatCountPercent(count = combosFailed, percent = combosFailed /
+                                       combosTested),
+    "\n",
+    "-----",
+    "\n"
   )
 }

@@ -32,7 +32,8 @@ reportCohortCount <- cohortCount |>
 temporalStabilityOutput <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
   cohortDiagnosticsIncidenceRateData = incidenceRate,
   cohort = cohort,
-  maxNumberOfSplines = 5,
+  removeOutlierZeroCounts = TRUE,
+  maxNumberOfSplines = 3,
   splineTickInterval = 3,
   maxRatio = 1.25,
   alpha = 0.05
@@ -41,36 +42,43 @@ temporalStabilityOutput <- checkTemporalStabilityForcohortDiagnosticsIncidenceRa
 #statistically unstable----
 cylopsStatisticallyUnstable <- temporalStabilityOutput |>
   dplyr::filter(cyclopsStable == FALSE) |>
-  dplyr::select(cohortId, cohortName, databaseId, cyclopsStable, cyclopsRatio, cyclopsPValue) |>
+  dplyr::select(cohortId,
+                cohortName,
+                databaseId,
+                cyclopsStable,
+                cyclopsRatio,
+                cyclopsPValue) |>
   dplyr::distinct() |>
   dplyr::mutate(
     cyclopsRatio = OhdsiHelpers::formatDecimalWithComma(cyclopsRatio, decimalPlaces = 5),
     cyclopsPValue = OhdsiHelpers::formatDecimalWithComma(cyclopsPValue, decimalPlaces = 5)
-  ) |> 
-  dplyr::arrange(cohortId,
-                 databaseId)
+  ) |>
+  dplyr::arrange(cohortId, databaseId)
 cylopsStatisticallyUnstable
 
 
 #R3: pass or fail rate-----
-summarizeTemporalStability(temporalStabilityOutput, 
-                           cylopsStatisticallyUnstable)
-
+summarizeTemporalStability(temporalStabilityOutput, cylopsStatisticallyUnstable)
 
 #clear rstudio plots
-if(!is.null(dev.list())) dev.off()
-
+if (!is.null(dev.list())) {
+  dev.off()
+}
 
 #statistic fails
 plotsPureRedCellAplasia <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 207)
 plotsPureRedCellAplasia
 
+plotsPolyMorphicVentricularTachycardia <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 275)
+plotsPolyMorphicVentricularTachycardia
+
+plotFirstAcuteHepaticFailure <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 724)
+plotFirstAcuteHepaticFailure
+
 plotAutoimmuneHepatitis <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 729)
 plotAutoimmuneHepatitis
-
 
 # Intuition says fail, statistics does not fail it
 ## dress should obviously fail
 plotsDress <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 733)
 plotsDress
-
