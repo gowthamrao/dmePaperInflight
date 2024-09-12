@@ -21,7 +21,7 @@ predicedIncidenceRateData <- checkTemporalStabilityForcohortDiagnosticsIncidence
   splineTickInterval = 3,
   maxRatio = 1.25,
   alpha = 0.05
-)
+) |> dplyr::mutate(expectedIncidenceRate = expectedIncidenceRate / 1000)
 plotTemporalTrendExpectedObserved(data = predicedIncidenceRateData)
 
 
@@ -37,7 +37,6 @@ fakeDatabaseId <- createFakeIncidenceRateData(
   cohortCountMin = 5,
   cohortCountMax = 10000
 )
-plotSimpleTemporalTrend(data = fakeDatabaseId)
 predicedIncidenceRateData <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
   cohortDiagnosticsIncidenceRateData = fakeDatabaseId,
   cohort = cohort,
@@ -45,7 +44,7 @@ predicedIncidenceRateData <- checkTemporalStabilityForcohortDiagnosticsIncidence
   splineTickInterval = 3,
   maxRatio = 1.25,
   alpha = 0.05
-)
+) |> dplyr::mutate(expectedIncidenceRate = expectedIncidenceRate / 1000)
 plotTemporalTrendExpectedObserved(data = predicedIncidenceRateData)
 
 
@@ -61,7 +60,6 @@ fakeDatabaseId <- createFakeIncidenceRateData(
   cohortCountMin = 5,
   cohortCountMax = 10000
 )
-plotSimpleTemporalTrend(data = fakeDatabaseId)
 predicedIncidenceRateData <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
   cohortDiagnosticsIncidenceRateData = fakeDatabaseId,
   cohort = cohort,
@@ -69,7 +67,7 @@ predicedIncidenceRateData <- checkTemporalStabilityForcohortDiagnosticsIncidence
   splineTickInterval = 3,
   maxRatio = 1.25,
   alpha = 0.05
-)
+) |> dplyr::mutate(expectedIncidenceRate = expectedIncidenceRate / 1000)
 plotTemporalTrendExpectedObserved(data = predicedIncidenceRateData)
 
 
@@ -86,7 +84,6 @@ fakeDatabaseId <- createFakeIncidenceRateData(
   cohortCountMin = 5,
   cohortCountMax = 10000
 )
-plotSimpleTemporalTrend(data = fakeDatabaseId)
 predicedIncidenceRateData <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
   cohortDiagnosticsIncidenceRateData = fakeDatabaseId,
   cohort = cohort,
@@ -94,7 +91,5 @@ predicedIncidenceRateData <- checkTemporalStabilityForcohortDiagnosticsIncidence
   splineTickInterval = 1,
   maxRatio = 1.25,
   alpha = 0.05
-)
+) |> dplyr::mutate(expectedIncidenceRate = expectedIncidenceRate / 1000)
 plotTemporalTrendExpectedObserved(data = predicedIncidenceRateData)
-
-

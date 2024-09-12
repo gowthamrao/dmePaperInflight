@@ -548,3 +548,20 @@ createFakeIncidenceRateData <- function(numberOfYears,
   
   return(output)
 }
+
+createPlotsByDatabaseId <- function(data, cohortId) {
+  # Extract unique databaseIds
+  databaseIds <- data$databaseId |> unique() |> sort()
+  
+  # Create a list of plots for each databaseId
+  plots <- lapply(databaseIds, function(dbId) {
+    # Filter data for the given cohortId and databaseId
+    subsetData <- data |>
+      dplyr::filter(cohortId == !!cohortId & databaseId == !!dbId)
+    
+    # Create the plot using your function plotTemporalTrendExpectedObserved
+    plotTemporalTrendExpectedObserved(subsetData)
+  })
+  
+  return(plots)
+}

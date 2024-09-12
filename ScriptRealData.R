@@ -4,10 +4,8 @@ source("functions.R")
 
 #icpe2023Data
 cohort <- readRDS("cohortIcpe2023.rds")
-incidenceRate <- readRDS("incidenceRateIcpe2023.rds") |> 
-  dplyr::filter(gender == '',
-                ageGroup == '',
-                calendarYear != '')
+incidenceRate <- readRDS("incidenceRateIcpe2023.rds") |>
+  dplyr::filter(gender == '', ageGroup == '', calendarYear != '')
 cohortCount <- readRDS("cohortCountIcpe2023.rds")
 
 #R1: cohort counts----
@@ -19,8 +17,7 @@ reportCohortCount <- cohortCount |>
     names_from = databaseId
   ) |>
   dplyr::inner_join(cohort |>
-                      dplyr::select(cohortId, cohortName),
-                    by = "cohortId") |>
+                      dplyr::select(cohortId, cohortName), by = "cohortId") |>
   dplyr::relocate(cohortId, cohortName)
 
 
@@ -34,7 +31,6 @@ temporalStabilityOutput <- checkTemporalStabilityForcohortDiagnosticsIncidenceRa
   alpha = 0.05
 )
 
-
 #statistically unstable----
 statisticallyUnstable <- temporalStabilityOutput |>
   dplyr::filter(stable == FALSE) |>
@@ -46,21 +42,5 @@ statisticallyUnstable <- temporalStabilityOutput |>
   )
 statisticallyUnstable
 
-
-# Creating an array of plots for each unique 'databaseId'
-databaseIds <- temporalStabilityOutput$databaseId |> unique() |> sort()
-cohortIds <- temporalStabilityOutput$cohortId |> unique() |> sort()
-
-plots <- lapply(databaseIds, function(dbId) {
-  data <- temporalStabilityOutput |>
-    dplyr::filter(cohortId == 723)
-  subsetData <- data[data$databaseId == dbId, ]
-  plotTemporalTrendExpectedObserved(subsetData)
-})
-
-
-
-
-
-
-
+plots <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 723)
+plots
