@@ -293,7 +293,10 @@ checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDi
       
       predicted <- predicted |>
         dplyr::mutate(
-          expectedIncidenceRate = round(x = (expected / personYears), digits = 10),
+          expectedIncidenceRate = round(
+            x = (expected / personYears) * 1000,
+            digits = 10
+          ),
           expected = round(x = expected, digits = 4),
           observedExpectedCountRatio = round(x = observed / expected, digits = 4),
           observedExpectedIncidenceRateRatio = round(x = incidenceRate / expectedIncidenceRate, digits = 4),
@@ -326,12 +329,11 @@ checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDi
 
 #' Plot Simple Temporal Trend
 #'
-#' This function generates a line plot of incidence rates over time, grouped by database ID.
+#' This function generates a line plot of incidence rates over time.
 #'
 #' @param data A data frame containing the data to be plotted.
 #' @param xAxisCol A string specifying the column in `data` to use for the x-axis. Default is "calendarYear".
 #' @param yAxisCol A string specifying the column in `data` to use for the y-axis. Default is "incidenceRate".
-#' @param groupBy A string specifying the column in `data` to use for grouping the data. Default is "databaseId".
 #' @param plotTitle A string specifying the title of the plot. Default is "Incidence Rate over time".
 #' @param xLabel A string specifying the label for the x-axis. Default is "Calendar year".
 #' @param yLabel A string specifying the label for the y-axis. Default is "Incidence Rate".
@@ -342,36 +344,17 @@ checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDi
 plotSimpleTemporalTrend <- function(data,
                                     xAxisCol = "calendarYear",
                                     yAxisCol = "incidenceRate",
-                                    groupBy = "databaseId",
                                     xLabel = "Calendar year",
                                     yLabel = "Incidence Rate",
                                     useMinimalTheme = TRUE,
                                     convertToPlotLy = FALSE) {
-  # Generate color palette based on unique database IDs
-  numColors <- length(unique(data[[groupBy]]))
-  colors <- OhdsiRPlots::createOhdsiPalette(numColors = numColors)
-  colorMapping <- setNames(colors, unique(data[[groupBy]]))
+  plotTitle <- "Observed values only\n"
   
-  plotTitle <- paste0("Observed values only\n")
-  
-  p <- ggplot2::ggplot(data,
-                       ggplot2::aes(
-                         x = .data[[xAxisCol]],
-                         y = .data[[yAxisCol]],
-                         color = .data[[groupBy]],
-                         group = .data[[groupBy]]
-                       )) +
+  p <- ggplot2::ggplot(data, ggplot2::aes(x = .data[[xAxisCol]], y = .data[[yAxisCol]])) +
     ggplot2::geom_line() +
     ggplot2::geom_point() +
-    ggplot2::scale_color_manual(values = colorMapping) +
-    ggplot2::scale_linetype_manual(values = c("solid")) +
     ggplot2::scale_y_continuous(limits = c(0, NA)) + # Ensure y-axis starts at 0
-    ggplot2::labs(
-      title = plotTitle,
-      x = xLabel,
-      y = yLabel,
-      color = "Database ID"
-    )
+    ggplot2::labs(title = plotTitle, x = xLabel, y = yLabel)
   
   if (useMinimalTheme) {
     p <- p + ggplot2::theme_minimal()
@@ -379,8 +362,7 @@ plotSimpleTemporalTrend <- function(data,
   
   if (convertToPlotLy) {
     # Convert ggplot object to plotly for interactive visualization
-    p_plotly <-
-      plotly::ggplotly(p, tooltip = c("x", "y", groupBy)) # Set tooltip to show data from specific columns
+    p_plotly <- plotly::ggplotly(p, tooltip = c("x", "y"))
     return(p_plotly)
   } else {
     return(p)
@@ -390,70 +372,68 @@ plotSimpleTemporalTrend <- function(data,
 
 
 
-
+#' Plot Temporal Trend with Expected and Observed Incidence Rates
+#'
+#' This function generates a line plot comparing expected and observed incidence rates over time.
+#'
+#' @param data A data frame containing the data to be plotted.
+#' @param xAxisCol A string specifying the column in `data` to use for the x-axis. Default is "calendarYear".
+#' @param yAxisCol A vector specifying the columns in `data` to use for the y-axis. Default is c("expectedIncidenceRate", "incidenceRate").
+#' @param xLabel A string specifying the label for the x-axis. Default is "Calendar year".
+#' @param yLabel A string specifying the label for the y-axis. Default is "Incidence Rate".
+#' @param useMinimalTheme A logical value indicating whether to use ggplot2's minimal theme. Default is TRUE.
+#' @param convertToPlotLy A logical value indicating whether to convert the ggplot object to a plotly object for interactive visualization. Default is FALSE.
+#' @return A ggplot or plotly object, depending on the value of `convertToPlotLy`.
+#' @export
 plotTemporalTrendExpectedObserved <- function(data,
                                               xAxisCol = "calendarYear",
                                               yAxisCol = c("expectedIncidenceRate", "incidenceRate"),
-                                              groupBy = "databaseId",
                                               xLabel = "Calendar year",
                                               yLabel = "Incidence Rate",
                                               useMinimalTheme = TRUE,
                                               convertToPlotLy = FALSE) {
-  # Generate color palette based on unique database IDs
-  numColors <- length(unique(data[[groupBy]]))
-  colors <- OhdsiRPlots::createOhdsiPalette(numColors = numColors)
-  colorMapping <- setNames(colors, unique(data[[groupBy]]))
+  numberOfSplinesUsed <- if ('numberOfSplinesUsed' %in% colnames(data))
+    max(data$numberOfSplinesUsed)
+  else
+    0
   
-  numberOfSplinesUsed <- 0
-  
-  if ('numberOfSplinesUsed' %in% colnames(data)) {
-    numberOfSplinesUsed <- max(data$numberOfSplinesUsed)
-  }
-  
-  plotTitle <-
-    paste0(
-      "\nObserved vs Expected. Splines used = ",
-      numberOfSplinesUsed,
-      ". p-value: ",
-      data$p |> min() |> OhdsiHelpers::formatDecimalWithComma(decimalPlaces = 4),
-      ". ratio = ",
-      data$ratio |> min() |> OhdsiHelpers::formatDecimalWithComma(decimalPlaces = 4)
-    )
-  
+  plotTitle <- paste0(
+    min(data$cohortName),
+    " (id: ",
+    min(data$cohortId),
+    ")\n",
+    min(data$databaseId),
+    "\nObserved vs Expected. Splines used = ",
+    numberOfSplinesUsed,
+    ". p-value: ",
+    OhdsiHelpers::formatDecimalWithComma(min(data$p), decimalPlaces = 4),
+    ". ratio = ",
+    OhdsiHelpers::formatDecimalWithComma(min(data$ratio), decimalPlaces = 4)
+  )
   
   plotTitle <- if (min(data$stable) == 0) {
-    plotTitle <- paste0(plotTitle, "\nUNSTABLE (FAILED Diagnostic)")
+    paste0(plotTitle, "\nUNSTABLE (FAILED Diagnostic)")
   } else {
-    plotTitle <- paste0(plotTitle, "\nSTABLE (Did not fail diagnostic)")
+    paste0(plotTitle, "\nSTABLE (Did not fail diagnostic)")
   }
   
   p <- ggplot2::ggplot(data) +
-    ggplot2::geom_line(
-      ggplot2::aes(
-        x = .data[[xAxisCol]],
-        y = .data[[yAxisCol[1]]],
-        color = .data[[groupBy]],
-        group = .data[[groupBy]],
-        linetype = "Expected"
-      )
-    ) +
-    ggplot2::geom_line(
-      ggplot2::aes(
-        x = .data[[xAxisCol]],
-        y = .data[[yAxisCol[2]]],
-        color = .data[[groupBy]],
-        group = .data[[groupBy]],
-        linetype = "Observed"
-      )
-    ) +
-    ggplot2::scale_color_manual(values = colorMapping) +
+    ggplot2::geom_line(ggplot2::aes(
+      x = .data[[xAxisCol]],
+      y = .data[[yAxisCol[1]]],
+      linetype = "Expected"
+    )) +
+    ggplot2::geom_line(ggplot2::aes(
+      x = .data[[xAxisCol]],
+      y = .data[[yAxisCol[2]]],
+      linetype = "Observed"
+    )) +
     ggplot2::scale_linetype_manual(values = c("Expected" = "dashed", "Observed" = "solid")) +
     ggplot2::scale_y_continuous(limits = c(0, NA)) + # Ensure y-axis starts at 0
     ggplot2::labs(
       title = plotTitle,
       x = xLabel,
       y = yLabel,
-      color = "Database ID",
       linetype = "Incidence Type"
     )
   
@@ -463,13 +443,13 @@ plotTemporalTrendExpectedObserved <- function(data,
   
   if (convertToPlotLy) {
     # Convert ggplot object to plotly for interactive visualization
-    p_plotly <-
-      plotly::ggplotly(p, tooltip = c("x", "y", groupBy, "linetype")) # Set tooltip to show data from specific columns
+    p_plotly <- plotly::ggplotly(p, tooltip = c("x", "y", "linetype"))
     return(p_plotly)
   } else {
     return(p)
   }
 }
+
 
 
 

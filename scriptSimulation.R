@@ -13,7 +13,7 @@ fakeDatabaseId <- createFakeIncidenceRateData(
   cohortCountMin = 5,
   cohortCountMax = 10000
 )
-plotSimpleTemporalTrend(data = fakeDatabaseId)
+
 predicedIncidenceRateData <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
   cohortDiagnosticsIncidenceRateData = fakeDatabaseId,
   cohort = cohort,
