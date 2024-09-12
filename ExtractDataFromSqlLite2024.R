@@ -1,54 +1,25 @@
 
-# connectionDetails <- DatabaseConnector::createConnectionDetails(
-#   dbms = "sqlite",
-#   server = "E:\\studyResults\\ohdsiPlDme\\CohortDiagnostics\\MergedCohortDiagnosticsData.sqlite"
-# )
-# 
-# connection <-
-#   DatabaseConnector::connect(connectionDetails = connectionDetails)
-# 
-# databases <- DatabaseConnector::renderTranslateQuerySql(connection = connection,
-#                                                         sql = "SELECT * FROM database;",
-#                                                         snakeCaseToCamelCase = TRUE) |> 
-#   dplyr::tibble()
 
+connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = "sqlite", server = "E:\\studyResults\\ohdsiPlDme\\CohortDiagnostics\\MergedCohortDiagnosticsData.sqlite")
+
+connection <-
+  DatabaseConnector::connect(connectionDetails = connectionDetails)
 
 #extract data----
-# incidenceRate <- DatabaseConnector::renderTranslateQuerySql(
-#   connection = connection,
-#   sql = "SELECT * FROM main.incidence_rate;",
-#   snakeCaseToCamelCase = TRUE
-# ) |> dplyr::tibble()
-# saveRDS(object = incidenceRate, file = "incidenceRate.rds")
-incidenceRate <- readRDS(file = "incidenceRate.rds")|>
-  dplyr::filter(databaseId %in% databaseIdsOfInterest,
-                calendarYear %in% yearRange)|>
-  dplyr::filter(calendarYear != "") |>
-  tidyr::replace_na(list(ageGroup = '', gender = '')) |> 
-  dplyr::filter(ageGroup == '') |> # we are not using age stratified incidence rate for the diagnostic
-  dplyr::filter(gender == '') # we are not using gender stratified incidence rate for the diagnostic
+incidenceRate2024 <- DatabaseConnector::renderTranslateQuerySql(connection = connection,
+                                                                sql = "SELECT * FROM main.incidence_rate;",
+                                                                snakeCaseToCamelCase = TRUE) |> dplyr::tibble()
+saveRDS(object = incidenceRate2024, file = "incidenceRate2024.RDS")
 
-# cohort <- DatabaseConnector::renderTranslateQuerySql(
-#   connection = connection,
-#   sql = "SELECT * FROM cohort;",
-#   snakeCaseToCamelCase = TRUE
-# ) |> dplyr::tibble()
-# saveRDS(object = cohort, file = "cohort.rds")
-cohort <- readRDS(file = "cohort.rds")
+cohort2024 <- DatabaseConnector::renderTranslateQuerySql(connection = connection,
+                                                         sql = "SELECT * FROM cohort;",
+                                                         snakeCaseToCamelCase = TRUE) |> dplyr::tibble()
+saveRDS(object = cohort2024, file = "cohort2024.RDS")
 
 
-# cohortCount <- DatabaseConnector::renderTranslateQuerySql(
-#   connection = connection,
-#   sql = "SELECT * FROM main.cohort_count;",
-#   snakeCaseToCamelCase = TRUE
-# ) |> dplyr::tibble()
-# saveRDS(object = cohortCount, file = "cohortCount.rds")
-cohortCount <- readRDS(file = "cohortCount.rds")
+cohortCount2024 <- DatabaseConnector::renderTranslateQuerySql(connection = connection,
+                                                              sql = "SELECT * FROM main.cohort_count;",
+                                                              snakeCaseToCamelCase = TRUE) |> dplyr::tibble()
+saveRDS(object = cohortCount2024, file = "cohortCount2024.RDS")
 
-# cohort <- DatabaseConnector::renderTranslateQuerySql(
-#   connection = connection,
-#   sql = "SELECT * FROM main.cohort;",
-#   snakeCaseToCamelCase = TRUE
-# ) |> dplyr::tibble()
-# saveRDS(object = cohort, file = "cohort.rds")
-cohort <- readRDS(file = "cohort.rds")
+DatabaseConnector::disconnect(connection)

@@ -3,10 +3,16 @@ setwd(rstudioapi::getActiveDocumentContext()$path |> dirname())
 source("functions.R")
 
 #icpe2023Data
-cohort <- readRDS("cohortIcpe2023.rds")
-incidenceRate <- readRDS("incidenceRateIcpe2023.rds") |>
+cohort <- readRDS("cohortIcpe2023.RDS")
+incidenceRate <- readRDS("incidenceRateIcpe2023.RDS") |>
   dplyr::filter(gender == '', ageGroup == '', calendarYear != '')
-cohortCount <- readRDS("cohortCountIcpe2023.rds")
+cohortCount <- readRDS("cohortCountIcpe2023.RDS")
+
+#2024Data
+cohort <- readRDS("cohort2024.RDS")
+incidenceRate <- readRDS("incidenceRate2024.RDS") |>
+  dplyr::filter(is.na(gender), is.na(ageGroup), !is.na(calendarYear))
+cohortCount <- readRDS("cohortCount2024.RDS")
 
 #R1: cohort counts----
 reportCohortCount <- cohortCount |>
@@ -20,7 +26,7 @@ reportCohortCount <- cohortCount |>
                       dplyr::select(cohortId, cohortName), by = "cohortId") |>
   dplyr::relocate(cohortId, cohortName)
 
-undebug(checkTemporalStabilityForcohortDiagnosticsIncidenceRateData)
+
 #R2: stability----
 temporalStabilityOutput <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
   cohortDiagnosticsIncidenceRateData = incidenceRate,
@@ -32,15 +38,16 @@ temporalStabilityOutput <- checkTemporalStabilityForcohortDiagnosticsIncidenceRa
 )
 
 #statistically unstable----
-statisticallyUnstable <- temporalStabilityOutput |>
-  dplyr::filter(stable == FALSE) |>
-  dplyr::select(cohortId, cohortName, databaseId, stable, ratio, p) |>
+cylopsStatisticallyUnstable <- temporalStabilityOutput |>
+  dplyr::filter(cyclopsStable == FALSE) |>
+  dplyr::select(cohortId, cohortName, databaseId, cyclopsStable, cyclopsRatio, cyclopsPValue) |>
   dplyr::distinct() |>
   dplyr::mutate(
-    ratio = OhdsiHelpers::formatDecimalWithComma(ratio, decimalPlaces = 5),
-    p = OhdsiHelpers::formatDecimalWithComma(p, decimalPlaces = 5)
+    cyclopsRatio = OhdsiHelpers::formatDecimalWithComma(cyclopsRatio, decimalPlaces = 5),
+    cyclopsPValue = OhdsiHelpers::formatDecimalWithComma(cyclopsPValue, decimalPlaces = 5)
   )
-statisticallyUnstable
+cylopsStatisticallyUnstable
 
+debug(createPlotsByDatabaseId)
 plots <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 723)
 plots
