@@ -20,7 +20,7 @@ reportCohortCount <- cohortCount |>
                       dplyr::select(cohortId, cohortName), by = "cohortId") |>
   dplyr::relocate(cohortId, cohortName)
 
-
+undebug(checkTemporalStabilityForcohortDiagnosticsIncidenceRateData)
 #R2: stability----
 temporalStabilityOutput <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
   cohortDiagnosticsIncidenceRateData = incidenceRate,

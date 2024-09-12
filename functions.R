@@ -15,8 +15,8 @@ getPredictedCount <- function(data,
                               countField,
                               personTimeField,
                               maxNumberOfSplines = NULL,
-                              splineTickInterval = 3) {
-  
+                              splineTickInterval = 3,
+                              alpha = 0.05) {
   # Check if there are duplicate records for the same timeSequenceField
   if (length(data[[timeSequenceField]]) != length(data[[timeSequenceField]] |> unique())) {
     stop("Cant have more than one record per ", timeSequenceField)
@@ -54,7 +54,7 @@ getPredictedCount <- function(data,
   # This allows the model to interpret the response variable as an event rate, adjusting for varying exposure times across observations.
   
   #The model is a Poisson regression (modelType = "pr"), meaning that the response variable (the observed counts) is assumed to follow a Poisson distribution (to model counts).
- 
+  
   # Natural splines (splines::ns) are used to model the relationship between the time index (timeId) and observed counts (observed).
   # The degrees of freedom (df = numberOfSplines) control the flexibility of the spline fit.
   # Splines allow for a more flexible fit to time-dependent data, especially when the relationship between time and observed events is non-linear.
@@ -73,13 +73,52 @@ getPredictedCount <- function(data,
     Cyclops::fitCyclopsModel() # Fit the Cyclops model
   
   # Predict the counts using the fitted model
-  predictions <- stats::predict(model, newdata = data)
+  cylopsPredictions <- stats::predict(model, newdata = data)
   
   # Add the predicted counts to the data
-  data$expected <- as.double(predictions)
+  data$expected <- as.double(cylopsPredictions)
   
   data$numberOfSplinesUsed <- numberOfSplines
   
+  # We cannot get confidence interval because Cyclops does not provide std errors.
+  # to get confidence intervals we will have to use another package other than cyclops like Glm
+  
+  
+  ########
+  # Fit the Poisson regression using glm() with the correct reference to the personTimeField column
+  # Try fitting Poisson regression using glm() and handle errors
+  tryCatch({
+    modelGlm <- glm(
+      observed ~ splines::ns(timeId, df = numberOfSplines) + offset(log(data[[personTimeField]])),
+      data = data,
+      family = poisson
+    )
+    glmPredictions <- stats::predict(modelGlm,
+                                     newdata = data,
+                                     type = "link",
+                                     se.fit = TRUE)
+    glmPredictedLog <- glmPredictions$fit
+    seLog <- glmPredictions$se.fit
+    
+    zValue <- qnorm(1 - alpha / 2)
+    
+    glmLowerBoundLog <- glmPredictedLog - zValue * seLog
+    glmUpperBoundLog <- glmPredictedLog + zValue * seLog
+    
+    # Exponentiate to get the predicted counts and CIs on the original scale
+    data$glmExpected <- as.double(exp(glmPredictedLog))
+    data$glmExpectedLowerBound <- as.double(exp(glmLowerBoundLog))
+    data$glmExpectedUpperBound <- as.double(exp(glmUpperBoundLog))
+    
+  }, error = function(e) {
+    # If there's an error, skip the glm part
+    # message("\nError in glm fitting: ", e$message)
+    data$glmExpected <- as.double(NA)
+    data$glmExpectedLowerBound <- as.double(NA)
+    data$glmExpectedUpperBound <- as.double(NA)
+  })
+  
+  ######
   # Arrange the data based on timeId and select the 'observed' and 'expected' columns
   data <- data |>
     dplyr::arrange(timeId) |>
