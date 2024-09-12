@@ -46,3 +46,5 @@ cohortCountIcpe2023 <- DatabaseConnector::renderTranslateQuerySql(
   snakeCaseToCamelCase = TRUE
 ) |> dplyr::tibble()
 saveRDS(object = cohortCountIcpe2023, file = "cohortCountIcpe2023.RDS")
+
+DatabaseConnector::disconnect(connection)

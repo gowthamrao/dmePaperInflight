@@ -9,6 +9,8 @@
 #' @param personTimeField The field in the data frame that represents the person time.
 #' @param maxNumberOfSplines The maximum number of splines to use in the model. If NULL, the default is 5.
 #' @param splineTickInterval The interval at which to place the splines. The default is 3.
+#' @param maxRatio The maximum ratio for the likelihood comparison. If NULL, the default is 1.25.
+#' @param alpha The significance level for the likelihood ratio test. If NULL, the default is 0.05.
 #' @return A data frame with the observed and expected counts.
 #' @export
 getPredictedCount <- function(data,
@@ -16,7 +18,9 @@ getPredictedCount <- function(data,
                               countField,
                               personTimeField,
                               maxNumberOfSplines = NULL,
-                              splineTickInterval = 3) {
+                              splineTickInterval = 3,
+                              alpha = 0.05,
+                              maxRatio = 1.25) {
   # Check if there are duplicate records for the same timeSequenceField
   if (length(data[[timeSequenceField]]) != length(data[[timeSequenceField]] |> unique())) {
     stop("Cant have more than one record per ", timeSequenceField)
@@ -43,6 +47,8 @@ getPredictedCount <- function(data,
     min(maxNumberOfSplines,
         ceiling(numberOfXAxisTicks / splineTickInterval)) # we will put a spline for every 3 ticks
   
+  data$numberOfSplinesUsed <- numberOfSplines
+  
   # Create a Cyclops data object using the observed counts, timeId, and personTimeField
   # The formula used here is a Poisson regression model with natural splines
   offsetTerm <- paste0("offset(log(", personTimeField, "))")
@@ -64,9 +70,84 @@ getPredictedCount <- function(data,
   predictions <- stats::predict(model, newdata = data)
   
   # Add the predicted counts to the data
-  data$expected <- as.double(predictions)
+  data$cyclopsExpected <- as.double(predictions)
   
-  data$numberOfSplinesUsed <- numberOfSplines
+  data <- data |>
+    likelihoodComparison(maxRatio = maxRatio, alpha = alpha) |>
+    dplyr::rename(
+      cyclopsRatio = ratio,
+      cyclopsPValue = p,
+      cyclopsStable = stable
+    )
+  
+  # We cannot get confidence interval because Cyclops does not provide std errors.
+  # to get confidence intervals we will have to use another package other than cyclops like Glm
+  
+  
+  # ########
+  # # Fit the Poisson regression using glm() with the correct reference to the personTimeField column
+  # # Try fitting Poisson regression using glm() and handle errors
+  # tryCatch({
+  #   
+  #   # assign default values
+  #   data$glmExpected <- as.double(NA)
+  #   data$glmExpectedLowerBound <- as.double(NA)
+  #   data$glmExpectedUpperBound <- as.double(NA)
+  #   data$glmDevianceValue <- as.double(NA)
+  #   data$glmDegreesOfFreedom <- as.double(NA)
+  #   data$glmPValueDeviance <- as.double(NA)
+  #   data$glmPearsonChiSquare <- as.double(NA)
+  #   data$glmPPValuePearson <- as.double(NA)
+  #   
+  #   modelGlm <- glm(
+  #     observed ~ splines::ns(timeId, df = numberOfSplines) + offset(log(data[[personTimeField]])),
+  #     data = data,
+  #     family = poisson
+  #   )
+  #   glmPredictions <- stats::predict(modelGlm,
+  #                                    newdata = data,
+  #                                    type = "link",
+  #                                    se.fit = TRUE)
+  #   glmPredictedLog <- glmPredictions$fit
+  #   seLog <- glmPredictions$se.fit
+  #   
+  #   zValue <- qnorm(1 - alpha / 2)
+  #   
+  #   glmLowerBoundLog <- glmPredictedLog - zValue * seLog
+  #   glmUpperBoundLog <- glmPredictedLog + zValue * seLog
+  #   
+  #   # Exponentiate to get the predicted counts and CIs on the original scale
+  #   data$glmExpected <- as.double(exp(glmPredictedLog))
+  #   data$glmExpectedLowerBound <- as.double(exp(glmLowerBoundLog))
+  #   data$glmExpectedUpperBound <- as.double(exp(glmUpperBoundLog))
+  #   
+  #   # Deviance Test (G-test)
+  #   # In Poisson regression, the deviance measures the difference between the observed and expected counts under the model.
+  #   # Get the deviance from the fitted model
+  #   data$glmDevianceValue <- modelGlm$deviance
+  #   # Get the degrees of freedom (difference between the number of observations and the number of parameters)
+  #   data$glmDegreesOfFreedom <- modelGlm$df.residual
+  #   # Compute the p-value from the chi-square distribution
+  #   data$glmPValueDeviance <- 1 - pchisq(modelGlm$deviance, modelGlm$df.residual)
+  #   
+  #   # Pearson Chi-Squared Test - This test sums the squared differences between the observed and expected counts, scaled by the expected counts.
+  #   # Compute Pearson's chi-squared test statistic
+  #   data$glmPearsonChiSquare <- sum((data$observed - data$glmExpected) ^
+  #                                     2 / data$glmExpected)
+  #   # Compute p-value for the Pearson chi-squared test
+  #   data$glmPPValuePearson <- 1 - pchisq(data$glmPearsonChiSquare, modelGlm$df.residual)
+  #   
+  #   if (min(data$glmPearsonChiSquare,
+  #           data$glmPPValuePearson) > alpha) {
+  #     data$glmStable <- TRUE
+  #   } else {
+  #     data$glmStable <- FALSE
+  #   }
+  #   
+  # }, error = function(e) {
+  #   # If there's an error, skip the glm part
+  #   # message("\nError in glm fitting: ", e$message)
+  # })
   
   # Arrange the data based on timeId and select the 'observed' and 'expected' columns
   data <- data |>
@@ -82,7 +163,7 @@ getPredictedCount <- function(data,
 
 #' Compare Likelihoods in a Data Frame
 #'
-#' This function compares the likelihoods of observed and expected counts in a data frame. It uses a Poisson regression model with natural splines and calculates the log-likelihood ratio. The function also adds a flag to indicate whether the data was imputed.
+#' This function compares the likelihoods of observed and expected counts in a data frame and calculates the log-likelihood ratio.
 #'
 #' @param data A data frame that contains the columns 'observed' and 'expected'.
 #' @param maxRatio The maximum ratio for the likelihood comparison. If NULL, the default is 1.25.
@@ -93,7 +174,7 @@ likelihoodComparison <- function(data,
                                  maxRatio = 1.25,
                                  alpha = 0.05) {
   observed <- data$observed
-  expected <- data$expected
+  expected <- data$cyclopsExpected
   
   # From https://cdsmithus.medium.com/the-logarithm-of-a-sum-69dd76199790
   smoothMax <- function(x, y) {
@@ -288,26 +369,37 @@ checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDi
         countField = "cohortCount",
         personTimeField = "personYears",
         maxNumberOfSplines = maxNumberOfSplines,
-        splineTickInterval = 3
+        splineTickInterval = splineTickInterval,
+        maxRatio = maxRatio,
+        alpha = alpha
       )
       
-      predicted <- predicted |>
+      output[[i]] <- predicted |>
         dplyr::mutate(
-          expectedIncidenceRate = round(
-            x = (expected / personYears) * 1000,
+          cyclopsExpectedIncidenceRate = round(
+            x = (cyclopsExpected / personYears) * 1000,
             digits = 10
           ),
-          expected = round(x = expected, digits = 4),
-          observedExpectedCountRatio = round(x = observed / expected, digits = 4),
-          observedExpectedIncidenceRateRatio = round(x = incidenceRate / expectedIncidenceRate, digits = 4),
-          percentageDeviation = (observed - expected) / expected * 100
+          cyclopsObservedExpectedCountRatio = round(x = observed / cyclopsExpected, digits = 4),
+          cyclopsObservedExpectedIncidenceRateRatio = round(x = incidenceRate / cyclopsExpectedIncidenceRate, digits = 4),
+          cyclopsPercentageDeviation = (observed - cyclopsExpected) / cyclopsExpected * 100,
+          cylopsExpected = round(x = cyclopsExpected, digits = 4)
+          # ,
+          # 
+          # ####
+          # glmExpectedIncidenceRate = round(
+          #   x = (glmExpected / personYears) * 1000,
+          #   digits = 10
+          # ),
+          # glmObservedExpectedCountRatio = round(x = observed / glmExpected, digits = 4),
+          # glmObservedExpectedIncidenceRateRatio = round(
+          #   x = incidenceRate / glmExpectedIncidenceRate,
+          #   digits = 4
+          # ),
+          # glmPercentageDeviation = (observed - glmExpected) / glmExpected * 100,
+          # glmExpected = round(x = glmExpected, digits = 4)
         )
       
-      likelihood <- predicted |>
-        likelihoodComparison(maxRatio = maxRatio, alpha = alpha)
-      
-      output[[i]] <- data |>
-        dplyr::left_join(likelihood, by = colnames(data))
     }
     
     # Update the progress bar
@@ -383,6 +475,7 @@ plotSimpleTemporalTrend <- function(data,
 #' @param yLabel A string specifying the label for the y-axis. Default is "Incidence Rate".
 #' @param useMinimalTheme A logical value indicating whether to use ggplot2's minimal theme. Default is TRUE.
 #' @param convertToPlotLy A logical value indicating whether to convert the ggplot object to a plotly object for interactive visualization. Default is FALSE.
+#' @param plotSource Options 'cyclops', 'glm' do you want to plot from cyclops or glm?
 #' @return A ggplot or plotly object, depending on the value of `convertToPlotLy`.
 #' @export
 plotTemporalTrendExpectedObserved <- function(data,
@@ -391,7 +484,19 @@ plotTemporalTrendExpectedObserved <- function(data,
                                               xLabel = "Calendar year",
                                               yLabel = "Incidence Rate",
                                               useMinimalTheme = TRUE,
-                                              convertToPlotLy = FALSE) {
+                                              convertToPlotLy = FALSE,
+                                              plotSource = 'cyclops') {
+  
+  if (plotSource == 'cyclops') {
+    data$expected <- data$cyclopsExpected
+    data$expectedIncidenceRate <- data$cyclopsExpectedIncidenceRate
+    data$p <- data$cyclopsPValue
+    data$ratio <- data$cyclopsRatio
+    data$stable <- data$cyclopsStable
+  } else {
+    stop("glm is not done")
+  }
+  
   numberOfSplinesUsed <- if ('numberOfSplinesUsed' %in% colnames(data))
     max(data$numberOfSplinesUsed)
   else
