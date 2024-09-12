@@ -21,9 +21,8 @@ predicedIncidenceRateData <- checkTemporalStabilityForcohortDiagnosticsIncidence
   splineTickInterval = 3,
   maxRatio = 1.25,
   alpha = 0.05
-) |> dplyr::mutate(expectedIncidenceRate = expectedIncidenceRate / 1000)
+) |> dplyr::mutate(cyclopsExpectedIncidenceRate = cyclopsExpectedIncidenceRate / 1000)
 plotTemporalTrendExpectedObserved(data = predicedIncidenceRateData)
-
 
 
 # scenario 2 - simple stable monotonic line
@@ -44,7 +43,7 @@ predicedIncidenceRateData <- checkTemporalStabilityForcohortDiagnosticsIncidence
   splineTickInterval = 3,
   maxRatio = 1.25,
   alpha = 0.05
-) |> dplyr::mutate(expectedIncidenceRate = expectedIncidenceRate / 1000)
+) |> dplyr::mutate(cyclopsExpectedIncidenceRate = cyclopsExpectedIncidenceRate / 1000)
 plotTemporalTrendExpectedObserved(data = predicedIncidenceRateData)
 
 
@@ -67,7 +66,7 @@ predicedIncidenceRateData <- checkTemporalStabilityForcohortDiagnosticsIncidence
   splineTickInterval = 3,
   maxRatio = 1.25,
   alpha = 0.05
-) |> dplyr::mutate(expectedIncidenceRate = expectedIncidenceRate / 1000)
+) |> dplyr::mutate(cyclopsExpectedIncidenceRate = cyclopsExpectedIncidenceRate / 1000)
 plotTemporalTrendExpectedObserved(data = predicedIncidenceRateData)
 
 
@@ -91,5 +90,5 @@ predicedIncidenceRateData <- checkTemporalStabilityForcohortDiagnosticsIncidence
   splineTickInterval = 1,
   maxRatio = 1.25,
   alpha = 0.05
-) |> dplyr::mutate(expectedIncidenceRate = expectedIncidenceRate / 1000)
+) |> dplyr::mutate(cyclopsExpectedIncidenceRate = cyclopsExpectedIncidenceRate / 1000)
 plotTemporalTrendExpectedObserved(data = predicedIncidenceRateData)

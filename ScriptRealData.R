@@ -2,13 +2,14 @@
 setwd(rstudioapi::getActiveDocumentContext()$path |> dirname())
 source("functions.R")
 
-#icpe2023Data
+#get data ----
+##icpe2023Data----
 cohort <- readRDS("cohortIcpe2023.RDS")
 incidenceRate <- readRDS("incidenceRateIcpe2023.RDS") |>
   dplyr::filter(gender == '', ageGroup == '', calendarYear != '')
 cohortCount <- readRDS("cohortCountIcpe2023.RDS")
 
-#2024Data
+##2024Data-----
 cohort <- readRDS("cohort2024.RDS")
 incidenceRate <- readRDS("incidenceRate2024.RDS") |>
   dplyr::filter(is.na(gender), is.na(ageGroup), !is.na(calendarYear))
@@ -45,9 +46,31 @@ cylopsStatisticallyUnstable <- temporalStabilityOutput |>
   dplyr::mutate(
     cyclopsRatio = OhdsiHelpers::formatDecimalWithComma(cyclopsRatio, decimalPlaces = 5),
     cyclopsPValue = OhdsiHelpers::formatDecimalWithComma(cyclopsPValue, decimalPlaces = 5)
-  )
+  ) |> 
+  dplyr::arrange(cohortId,
+                 databaseId)
 cylopsStatisticallyUnstable
 
-debug(createPlotsByDatabaseId)
-plots <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 723)
-plots
+
+#R3: pass or fail rate-----
+summarizeTemporalStability(temporalStabilityOutput, 
+                           cylopsStatisticallyUnstable)
+
+
+#clear rstudio plots
+if(!is.null(dev.list())) dev.off()
+
+
+#statistic fails
+plotsPureRedCellAplasia <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 207)
+plotsPureRedCellAplasia
+
+plotAutoimmuneHepatitis <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 729)
+plotAutoimmuneHepatitis
+
+
+# Intuition says fail, statistics does not fail it
+## dress should obviously fail
+plotsDress <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 733)
+plotsDress
+

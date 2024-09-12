@@ -670,3 +670,33 @@ createPlotsByDatabaseId <- function(data, cohortId) {
   
   return(plots)
 }
+
+
+summarizeTemporalStability <- function(temporalStabilityOutput, 
+                                       cylopsStatisticallyUnstable) {
+  
+  # Calculate the counts for tested cohorts, databases, and combinations
+  cohortsTested <- temporalStabilityOutput$cohortId |> unique() |> length()
+  databasesTested <- temporalStabilityOutput$databaseId |> unique() |> length()
+  combosTested <- temporalStabilityOutput |> dplyr::select(cohortId, databaseId) |> dplyr::distinct() |> nrow()
+  
+  # Calculate the counts for failed cohorts, databases, and combinations
+  cohortsFailed <- length(cylopsStatisticallyUnstable$cohortId |> unique())
+  databasesFailed <- length(cylopsStatisticallyUnstable$databaseId |> unique())
+  combosFailed <- cylopsStatisticallyUnstable |> dplyr::select(cohortId, databaseId) |> dplyr::distinct() |> nrow()
+  
+  # Print the summary
+  cat(
+    "\n",
+    "-----",
+    "\n",
+    "Number of cohorts tested:", cohortsTested, "\n",
+    "Number of databases tested:", databasesTested, "\n",
+    "Number of combos tested:", combosTested, "\n",
+    "-----", "\n",
+    "Number of cohorts that failed in atleast one datasource:", OhdsiHelpers::formatCountPercent(count = cohortsFailed, percent = cohortsFailed/cohortsTested), "\n",
+    "Number of databases with atleast one cohort failed:", OhdsiHelpers::formatCountPercent(count = databasesFailed, percent = databasesFailed/databasesTested), "\n",
+    "Number of combos failed:", OhdsiHelpers::formatCountPercent(count = combosFailed, percent = combosFailed/combosTested), "\n",
+    "-----", "\n"
+  )
+}
