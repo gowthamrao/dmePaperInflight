@@ -47,7 +47,8 @@ cylopsStatisticallyUnstable <- temporalStabilityOutput |>
                 databaseId,
                 cyclopsStable,
                 cyclopsRatio,
-                cyclopsPValue) |>
+                cyclopsPValue,
+                glmStable) |>
   dplyr::distinct() |>
   dplyr::mutate(
     cyclopsRatio = OhdsiHelpers::formatDecimalWithComma(cyclopsRatio, decimalPlaces = 5),
@@ -78,7 +79,11 @@ plotFirstAcuteHepaticFailure
 plotAutoimmuneHepatitis <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 729)
 plotAutoimmuneHepatitis
 
-# Intuition says fail, statistics does not fail it
-## dress should obviously fail
+plotAutoimmuneHemolyticAnemia <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 728)
+plotAutoimmuneHemolyticAnemia
+
 plotsDress <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 733)
 plotsDress
+
+plotsAli <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 736)
+plotsAli

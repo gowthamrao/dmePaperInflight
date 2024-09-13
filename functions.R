@@ -87,67 +87,67 @@ getPredictedCount <- function(data,
   # ########
   # # Fit the Poisson regression using glm() with the correct reference to the personTimeField column
   # # Try fitting Poisson regression using glm() and handle errors
-  # tryCatch({
-  #
-  #   # assign default values
-  #   data$glmExpected <- as.double(NA)
-  #   data$glmExpectedLowerBound <- as.double(NA)
-  #   data$glmExpectedUpperBound <- as.double(NA)
-  #   data$glmDevianceValue <- as.double(NA)
-  #   data$glmDegreesOfFreedom <- as.double(NA)
-  #   data$glmPValueDeviance <- as.double(NA)
-  #   data$glmPearsonChiSquare <- as.double(NA)
-  #   data$glmPPValuePearson <- as.double(NA)
-  #
-  #   modelGlm <- glm(
-  #     observed ~ splines::ns(timeId, df = numberOfSplines) + offset(log(data[[personTimeField]])),
-  #     data = data,
-  #     family = poisson
-  #   )
-  #   glmPredictions <- stats::predict(modelGlm,
-  #                                    newdata = data,
-  #                                    type = "link",
-  #                                    se.fit = TRUE)
-  #   glmPredictedLog <- glmPredictions$fit
-  #   seLog <- glmPredictions$se.fit
-  #
-  #   zValue <- qnorm(1 - alpha / 2)
-  #
-  #   glmLowerBoundLog <- glmPredictedLog - zValue * seLog
-  #   glmUpperBoundLog <- glmPredictedLog + zValue * seLog
-  #
-  #   # Exponentiate to get the predicted counts and CIs on the original scale
-  #   data$glmExpected <- as.double(exp(glmPredictedLog))
-  #   data$glmExpectedLowerBound <- as.double(exp(glmLowerBoundLog))
-  #   data$glmExpectedUpperBound <- as.double(exp(glmUpperBoundLog))
-  #
-  #   # Deviance Test (G-test)
-  #   # In Poisson regression, the deviance measures the difference between the observed and expected counts under the model.
-  #   # Get the deviance from the fitted model
-  #   data$glmDevianceValue <- modelGlm$deviance
-  #   # Get the degrees of freedom (difference between the number of observations and the number of parameters)
-  #   data$glmDegreesOfFreedom <- modelGlm$df.residual
-  #   # Compute the p-value from the chi-square distribution
-  #   data$glmPValueDeviance <- 1 - pchisq(modelGlm$deviance, modelGlm$df.residual)
-  #
-  #   # Pearson Chi-Squared Test - This test sums the squared differences between the observed and expected counts, scaled by the expected counts.
-  #   # Compute Pearson's chi-squared test statistic
-  #   data$glmPearsonChiSquare <- sum((data$observed - data$glmExpected) ^
-  #                                     2 / data$glmExpected)
-  #   # Compute p-value for the Pearson chi-squared test
-  #   data$glmPPValuePearson <- 1 - pchisq(data$glmPearsonChiSquare, modelGlm$df.residual)
-  #
-  #   if (min(data$glmPearsonChiSquare,
-  #           data$glmPPValuePearson) > alpha) {
-  #     data$glmStable <- TRUE
-  #   } else {
-  #     data$glmStable <- FALSE
-  #   }
-  #
-  # }, error = function(e) {
-  #   # If there's an error, skip the glm part
-  #   # message("\nError in glm fitting: ", e$message)
-  # })
+  tryCatch({
+
+    # assign default values
+    data$glmExpected <- as.double(NA)
+    data$glmExpectedLowerBound <- as.double(NA)
+    data$glmExpectedUpperBound <- as.double(NA)
+    data$glmDevianceValue <- as.double(NA)
+    data$glmDegreesOfFreedom <- as.double(NA)
+    data$glmPValueDeviance <- as.double(NA)
+    data$glmPearsonChiSquare <- as.double(NA)
+    data$glmPPValuePearson <- as.double(NA)
+
+    modelGlm <- glm(
+      observed ~ splines::ns(timeId, df = numberOfSplines) + offset(log(data[[personTimeField]])),
+      data = data,
+      family = poisson
+    )
+    glmPredictions <- stats::predict(modelGlm,
+                                     newdata = data,
+                                     type = "link",
+                                     se.fit = TRUE)
+    glmPredictedLog <- glmPredictions$fit
+    seLog <- glmPredictions$se.fit
+
+    zValue <- qnorm(1 - alpha / 2)
+
+    glmLowerBoundLog <- glmPredictedLog - zValue * seLog
+    glmUpperBoundLog <- glmPredictedLog + zValue * seLog
+
+    # Exponentiate to get the predicted counts and CIs on the original scale
+    data$glmExpected <- as.double(exp(glmPredictedLog))
+    data$glmExpectedLowerBound <- as.double(exp(glmLowerBoundLog))
+    data$glmExpectedUpperBound <- as.double(exp(glmUpperBoundLog))
+
+    # Deviance Test (G-test)
+    # In Poisson regression, the deviance measures the difference between the observed and expected counts under the model.
+    # Get the deviance from the fitted model
+    data$glmDevianceValue <- modelGlm$deviance
+    # Get the degrees of freedom (difference between the number of observations and the number of parameters)
+    data$glmDegreesOfFreedom <- modelGlm$df.residual
+    # Compute the p-value from the chi-square distribution
+    data$glmPValueDeviance <- 1 - pchisq(modelGlm$deviance, modelGlm$df.residual)
+
+    # Pearson Chi-Squared Test - This test sums the squared differences between the observed and expected counts, scaled by the expected counts.
+    # Compute Pearson's chi-squared test statistic
+    data$glmPearsonChiSquare <- sum((data$observed - data$glmExpected) ^
+                                      2 / data$glmExpected)
+    # Compute p-value for the Pearson chi-squared test
+    data$glmPPValuePearson <- 1 - pchisq(data$glmPearsonChiSquare, modelGlm$df.residual)
+
+    if (min(data$glmPearsonChiSquare,
+            data$glmPPValuePearson) > alpha) {
+      data$glmStable <- TRUE
+    } else {
+      data$glmStable <- FALSE
+    }
+
+  }, error = function(e) {
+    # If there's an error, skip the glm part
+    # message("\nError in glm fitting: ", e$message)
+  })
   
   # Arrange the data based on timeId and select the 'observed' and 'expected' columns
   data <- data |>
@@ -548,10 +548,10 @@ plotTemporalTrendExpectedObserved <- function(data,
     OhdsiHelpers::formatDecimalWithComma(min(data$p), decimalPlaces = 4),
     ". ratio = ",
     OhdsiHelpers::formatDecimalWithComma(min(data$ratio), decimalPlaces = 4),
-    "\n",
+    "\n - ",
     min(data$zeroRecordLeadRemoved),
     " records with lead (left) zero counts found and has been removed",
-    "\n",
+    "\n - ",
     min(data$zeroRecordTrailRemoved),
     " records with trail (right) zero counts found and has been removed"
   )
