@@ -127,13 +127,11 @@ getPredictedCount <- function(data,
       likelihoodComparison(maxRatio = maxRatio, alpha = alpha) |>
       dplyr::rename(glmRatio = ratio,
                     glmPValue = p,
-                    glmStable = stable) |> 
-      dplyr::select(glmRatio, 
-                    glmPValue, 
-                    glmStable) |> 
+                    glmStable = stable) |>
+      dplyr::select(glmRatio, glmPValue, glmStable) |>
       dplyr::distinct()
     
-    data <- data |> 
+    data <- data |>
       tidyr::crossing(glmLikelihood)
     
     # These tests, although valid, give different results from Martijn's likelihood function.
@@ -153,6 +151,9 @@ getPredictedCount <- function(data,
                                       2 / data$glmExpected)
     # Compute p-value for the Pearson chi-squared test
     data$glmPPValuePearson <- 1 - pchisq(data$glmPearsonChiSquare, modelGlm$df.residual)
+    
+    data$glmPearsonStable <- min(data$glmPPValuePearson) > alpha
+    data$glmDevianceStable <- min(data$glmPValueDeviance) > alpha
     
   }, error = function(e) {
     # If there's an error, skip the glm part
@@ -598,33 +599,23 @@ checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDi
 #' This function generates a line plot of incidence rates over time.
 #'
 #' @param data A data frame containing the data to be plotted.
-#' @param xAxisCol A string specifying the column in `data` to use for the x-axis. Default is "calendarYear".
 #' @param yAxisCol A string specifying the column in `data` to use for the y-axis. Default is "incidenceRate".
 #' @param plotTitle A string specifying the title of the plot. Default is "Incidence Rate over time".
-#' @param xLabel A string specifying the label for the x-axis. Default is "Calendar year".
-#' @param yLabel A string specifying the label for the y-axis. Default is "Incidence Rate".
-#' @param useMinimalTheme A logical value indicating whether to use ggplot2's minimal theme. Default is TRUE.
 #' @param convertToPlotLy A logical value indicating whether to convert the ggplot object to a plotly object for interactive visualization. Default is FALSE.
 #' @return A ggplot or plotly object, depending on the value of `convertToPlotLy`.
 #' @export
 plotSimpleTemporalTrend <- function(data,
-                                    xAxisCol = "calendarYear",
                                     yAxisCol = "incidenceRate",
                                     xLabel = "Calendar year",
-                                    yLabel = "Incidence Rate",
-                                    useMinimalTheme = TRUE,
                                     convertToPlotLy = FALSE) {
   plotTitle <- "Observed values only\n"
   
-  p <- ggplot2::ggplot(data, ggplot2::aes(x = .data[[xAxisCol]], y = .data[[yAxisCol]])) +
+  p <- ggplot2::ggplot(data, ggplot2::aes(x = .data[["calendarYear"]], y = .data[[yAxisCol]])) +
     ggplot2::geom_line() +
     ggplot2::geom_point() +
     ggplot2::scale_y_continuous(limits = c(0, NA)) + # Ensure y-axis starts at 0
-    ggplot2::labs(title = plotTitle, x = xLabel, y = yLabel)
-  
-  if (useMinimalTheme) {
-    p <- p + ggplot2::theme_minimal()
-  }
+    ggplot2::labs(title = plotTitle, x = xLabel, y = "Incidence Rate") +
+    ggplot2::theme_minimal()
   
   if (convertToPlotLy) {
     # Convert ggplot object to plotly for interactive visualization
@@ -643,21 +634,11 @@ plotSimpleTemporalTrend <- function(data,
 #' This function generates a line plot comparing expected and observed incidence rates over time.
 #'
 #' @param data A data frame containing the data to be plotted.
-#' @param xAxisCol A string specifying the column in `data` to use for the x-axis. Default is "calendarYear".
-#' @param yAxisCol A vector specifying the columns in `data` to use for the y-axis. Default is c("expectedIncidenceRate", "incidenceRate").
-#' @param xLabel A string specifying the label for the x-axis. Default is "Calendar year".
-#' @param yLabel A string specifying the label for the y-axis. Default is "Incidence Rate".
-#' @param useMinimalTheme A logical value indicating whether to use ggplot2's minimal theme. Default is TRUE.
 #' @param convertToPlotLy A logical value indicating whether to convert the ggplot object to a plotly object for interactive visualization. Default is FALSE.
 #' @param plotSource Options 'cyclops', 'glm' do you want to plot from cyclops or glm?
 #' @return A ggplot or plotly object, depending on the value of `convertToPlotLy`.
 #' @export
 plotTemporalTrendExpectedObserved <- function(data,
-                                              xAxisCol = "calendarYear",
-                                              yAxisCol = c("expectedIncidenceRate", "incidenceRate"),
-                                              xLabel = "Calendar year",
-                                              yLabel = "Incidence Rate",
-                                              useMinimalTheme = TRUE,
                                               convertToPlotLy = FALSE,
                                               plotSource = 'default') {
   if (nrow(data) == 0) {
@@ -667,31 +648,34 @@ plotTemporalTrendExpectedObserved <- function(data,
   if (plotSource == 'cyclops') {
     data$expected <- data$cyclopsExpected
     data$expectedIncidenceRate <- data$cyclopsExpectedIncidenceRate
-    data$p <- data$cyclopsPValue
-    data$ratio <- data$cyclopsRatio
-    data$stable <- data$cyclopsStable
+    data$p <- data$cyclopsPValue |> max(na.rm = TRUE)
+    data$ratio <- data$cyclopsRatio |> max(na.rm = TRUE)
+    data$stable <- data$cyclopsStable |> max(na.rm = TRUE)
   } else if (plotSource == 'glm') {
     data$expected <- data$glmExpected
     data$expectedIncidenceRate <- data$glmExpectedIncidenceRate
-    data$p <- data$glmPValue
-    data$ratio <- data$glmRatio
-    data$stable <- data$glmStable
+    data$p <- data$glmPValue |> max(na.rm = TRUE)
+    data$ratio <- data$glmRatio |> max(na.rm = TRUE)
+    data$stable <- data$glmStable |> max(na.rm = TRUE)
     data$expectedIncidenceRateUpperBound <- data$glmExpectedIncidenceRateUpperBound
     data$expectedIncidenceRateLowerBound <- data$glmExpectedIncidenceRateLowerBound
   } else {
     data$expected <- dplyr::coalesce(data$glmExpected, data$cyclopsExpected)
-    data$expectedIncidenceRate <- dplyr::coalesce(data$glmExpectedIncidenceRate, data$cyclopsExpectedIncidenceRate)
-    data$p <- dplyr::coalesce(data$glmPValue, data$cglmPValue)
-    data$ratio <- dplyr::coalesce(data$glmRatio, data$cyclopsRatio)
-    data$stable <- dplyr::coalesce(data$glmStable, data$cyclopsStable)
+    data$expectedIncidenceRate <- dplyr::coalesce(data$glmExpectedIncidenceRate,
+                                                  data$cyclopsExpectedIncidenceRate)
+    data$p <- dplyr::coalesce(data$glmPValue, data$cyclopsPValue) |> max(na.rm = TRUE)
+    data$ratio <- dplyr::coalesce(data$glmRatio, data$cyclopsRatio) |> max(na.rm = TRUE)
+    data$stable <- dplyr::coalesce(data$glmStable, data$cyclopsStable) |> max(na.rm = TRUE)
     data$expectedIncidenceRateUpperBound <- data$glmExpectedIncidenceRateUpperBound
     data$expectedIncidenceRateLowerBound <- data$glmExpectedIncidenceRateLowerBound
   }
   
-  numberOfSplinesUsed <- if ('numberOfSplinesUsed' %in% colnames(data))
-    max(data$numberOfSplinesUsed)
-  else
+  numberOfSplinesUsed <- if ('numberOfSplinesUsed' %in% colnames(data)) {
+    max(data$numberOfSplinesUsed |> max(na.rm = TRUE))
+  }
+  else {
     0
+  }
   
   plotTitle <- paste0(
     min(data$cohortName),
@@ -753,35 +737,94 @@ plotTemporalTrendExpectedObserved <- function(data,
     plotTitle <- paste0(plotTitle, "\n - using all calendar years")
   }
   
-  plotTitle <- if (any(data$stable == FALSE, na.rm = TRUE)) {
-    paste0(plotTitle, "\n\nUNSTABLE (FAILED Diagnostic)")
+  if (any(data$stable == FALSE, na.rm = TRUE)) {
+    stableTitle <- "\n\nUNSTABLE (FAILED LogLikelihood)"
   } else {
-    paste0(plotTitle, "\n\nSTABLE (Did not fail diagnostic)")
+    stableTitle <- "\n\nSTABLE (Did not fail LogLikelihood)"
   }
   
-  p <- ggplot2::ggplot(data) +
-    ggplot2::geom_line(ggplot2::aes(
-      x = .data[[xAxisCol]],
-      y = .data[[yAxisCol[1]]],
-      linetype = "Expected"
-    )) +
-    ggplot2::geom_line(ggplot2::aes(
-      x = .data[[xAxisCol]],
-      y = .data[[yAxisCol[2]]],
-      linetype = "Observed"
-    )) +
-    ggplot2::scale_linetype_manual(values = c("Expected" = "dashed", "Observed" = "solid")) +
-    ggplot2::scale_y_continuous(limits = c(0, NA)) + # Ensure y-axis starts at 0
-    ggplot2::labs(
-      title = plotTitle,
-      x = xLabel,
-      y = yLabel,
-      linetype = "Incidence Type"
-    )
-  
-  if (useMinimalTheme) {
-    p <- p + ggplot2::theme_minimal()
+  if (any(!is.na(data$expectedIncidenceRateLowerBound))) {
+    stableTitlePearson <- NULL
+    if (any(data$glmPearsonStable == FALSE, na.rm = TRUE)) {
+      stableTitlePearson <- " [Pearson FAILED]"
+    } else {
+      stableTitlePearson <- " [Pearson did not fail]"
+    }
+    
+    stableTitleDeviance <- NULL
+    if (any(data$glmDevianceStable == FALSE, na.rm = TRUE)) {
+      stableTitleDeviance <- " [G-test deviance FAILED]"
+    } else {
+      stableTitlePearson <- " [G-test deviance did not fail]"
+    }
+    
+    stableTitle <- paste0(stableTitle, stableTitlePearson, stableTitleDeviance)
   }
+  
+  plotTitle <- if (any(data$stable == FALSE, na.rm = TRUE)) {
+    paste0(plotTitle, "\n\n", stableTitle)
+  } else {
+    paste0(plotTitle, "\n\n", stableTitle)
+  }
+  
+  # Dynamically generate the column names for the confidence interval
+  lowerBoundCol <- "expectedIncidenceRateLowerBound"
+  upperBoundCol <- "expectedIncidenceRateUpperBound"
+  
+  # Check if the dynamically named UpperBound and LowerBound columns exist in the data
+  if (lowerBoundCol %in% colnames(data) &&
+      upperBoundCol %in% colnames(data)) {
+    p <- ggplot2::ggplot(data) +
+      ggplot2::geom_ribbon(
+        ggplot2::aes(
+          x = .data[["calendarYear"]],
+          ymin = .data[[lowerBoundCol]],
+          ymax = .data[[upperBoundCol]]
+        ),
+        fill = "lightgray",
+        alpha = 0.5
+      ) + # Confidence interval shading
+      ggplot2::geom_line(ggplot2::aes(
+        x = .data[["calendarYear"]],
+        y = .data[["expectedIncidenceRate"]],
+        linetype = "Expected"
+      )) +
+      ggplot2::geom_line(ggplot2::aes(
+        x = .data[["calendarYear"]],
+        y = .data[["incidenceRate"]],
+        linetype = "Observed"
+      )) +
+      ggplot2::scale_linetype_manual(values = c("Expected" = "dashed", "Observed" = "solid")) +
+      ggplot2::scale_y_continuous(limits = c(0, NA)) + # Ensure y-axis starts at 0
+      ggplot2::labs(
+        title = plotTitle,
+        x = "Calendar Year",
+        y = "Incidence Rate",
+        linetype = "Incidence Type"
+      )
+  } else {
+    p <- ggplot2::ggplot(data) +
+      ggplot2::geom_line(ggplot2::aes(
+        x = .data[["calendarYear"]],
+        y = .data[["expectedIncidenceRate"]],
+        linetype = "Expected"
+      )) +
+      ggplot2::geom_line(ggplot2::aes(
+        x = .data[["calendarYear"]],
+        y = .data[["incidenceRate"]],
+        linetype = "Observed"
+      )) +
+      ggplot2::scale_linetype_manual(values = c("Expected" = "dashed", "Observed" = "solid")) +
+      ggplot2::scale_y_continuous(limits = c(0, NA)) + # Ensure y-axis starts at 0
+      ggplot2::labs(
+        title = plotTitle,
+        x = "Calendar Year",
+        y = "Incidence Rate",
+        linetype = "Incidence Type"
+      )
+  }
+  
+  p <- p + ggplot2::theme_minimal()
   
   if (convertToPlotLy) {
     # Convert ggplot object to plotly for interactive visualization

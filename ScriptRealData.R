@@ -55,32 +55,37 @@ cylopsStatisticallyUnstable <- temporalStabilityOutput |>
   dplyr::arrange(cohortId, databaseId)
 cylopsStatisticallyUnstable
 
-# #statistically unstable----
-glmStatisticallyUnstable <- temporalStabilityOutput |>
-  dplyr::filter(glmStable == FALSE) |>
-  dplyr::select(cohortId,
-                cohortName,
-                databaseId,
-                glmStable,
-                glmRatio,
-                glmPValue,
-                glmPPValuePearson) |>
+# deviance----
+glmDevianceStatisticallyUnstable <- temporalStabilityOutput |>
+  dplyr::filter(glmDevianceStable == FALSE) |>
+  dplyr::select(
+    cohortId,
+    cohortName,
+    databaseId,
+    glmDevianceStable,
+    glmPValue,
+    glmPPValuePearson,
+    glmPValueDeviance
+  ) |>
   dplyr::distinct() |>
-  dplyr::mutate(glmPPValuePearson = OhdsiHelpers::formatDecimalWithComma(glmPPValuePearson, decimalPlaces = 5)) |>
+  dplyr::mutate(
+    glmPValue = OhdsiHelpers::formatDecimalWithComma(glmPValue, decimalPlaces = 5),
+    glmPPValuePearson = OhdsiHelpers::formatDecimalWithComma(glmPPValuePearson, decimalPlaces = 5),
+    glmPValueDeviance = OhdsiHelpers::formatDecimalWithComma(glmPValueDeviance, decimalPlaces = 5)
+  ) |>
   dplyr::arrange(cohortId, databaseId)
-glmStatisticallyUnstable
+glmDevianceStatisticallyUnstable
 
 
 #R3: pass or fail rate-----
 summarizeTemporalStability(temporalStabilityOutput, cylopsStatisticallyUnstable)
-summarizeTemporalStability(temporalStabilityOutput, glmStatisticallyUnstable)
+summarizeTemporalStability(temporalStabilityOutput, glmDevianceStatisticallyUnstable)
 
 #clear rstudio plots
 if (!is.null(dev.list())) {
   dev.off()
 }
 
-debug(plotTemporalTrendExpectedObserved)
 #statistic fails
 plotsPureRedCellAplasia <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 207)
 plotsPureRedCellAplasia
