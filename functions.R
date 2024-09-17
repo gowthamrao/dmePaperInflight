@@ -7,7 +7,7 @@
 #' @param timeSequenceField The field in the data frame that represents the time sequence.
 #' @param countField The field in the data frame that represents the count of events.
 #' @param personTimeField The field in the data frame that represents the person time.
-#' @param maxNumberOfSplines The maximum number of splines to use in the model. If NULL, the default is 5.
+#' @param maxNumberOfSplines The maximum number of splines to use in the model. If NULL, the default is 3.
 #' @param splineTickInterval The interval at which to place the splines. The default is 3.
 #' @param maxRatio The maximum ratio for the likelihood comparison. If NULL, the default is 1.25.
 #' @param alpha The significance level for the likelihood ratio test. If NULL, the default is 0.05.
@@ -37,7 +37,7 @@ getPredictedCount <- function(data,
   
   # Set the default value for maxNumberOfSplines if it's NULL
   if (is.null(maxNumberOfSplines)) {
-    maxNumberOfSplines <- 5
+    maxNumberOfSplines <- 3
   }
   
   numberOfXAxisTicks <- length(unique(data$timeId))
@@ -88,7 +88,6 @@ getPredictedCount <- function(data,
   # # Fit the Poisson regression using glm() with the correct reference to the personTimeField column
   # # Try fitting Poisson regression using glm() and handle errors
   tryCatch({
-
     # assign default values
     data$glmExpected <- as.double(NA)
     data$glmExpectedLowerBound <- as.double(NA)
@@ -98,7 +97,7 @@ getPredictedCount <- function(data,
     data$glmPValueDeviance <- as.double(NA)
     data$glmPearsonChiSquare <- as.double(NA)
     data$glmPPValuePearson <- as.double(NA)
-
+    
     modelGlm <- glm(
       observed ~ splines::ns(timeId, df = numberOfSplines) + offset(log(data[[personTimeField]])),
       data = data,
@@ -110,17 +109,35 @@ getPredictedCount <- function(data,
                                      se.fit = TRUE)
     glmPredictedLog <- glmPredictions$fit
     seLog <- glmPredictions$se.fit
-
+    
     zValue <- qnorm(1 - alpha / 2)
-
+    
     glmLowerBoundLog <- glmPredictedLog - zValue * seLog
     glmUpperBoundLog <- glmPredictedLog + zValue * seLog
-
+    
     # Exponentiate to get the predicted counts and CIs on the original scale
     data$glmExpected <- as.double(exp(glmPredictedLog))
     data$glmExpectedLowerBound <- as.double(exp(glmLowerBoundLog))
     data$glmExpectedUpperBound <- as.double(exp(glmUpperBoundLog))
-
+    
+    #using Martijn's likelikhood custom function to calculate p-value
+    glmLikelihood <- data |>
+      dplyr::select(glmExpected, observed) |>
+      dplyr::rename(cyclopsExpected = glmExpected) |>
+      likelihoodComparison(maxRatio = maxRatio, alpha = alpha) |>
+      dplyr::rename(glmRatio = ratio,
+                    glmPValue = p,
+                    glmStable = stable) |> 
+      dplyr::select(glmRatio, 
+                    glmPValue, 
+                    glmStable) |> 
+      dplyr::distinct()
+    
+    data <- data |> 
+      tidyr::crossing(glmLikelihood)
+    
+    # These tests, although valid, give different results from Martijn's likelihood function.
+    
     # Deviance Test (G-test)
     # In Poisson regression, the deviance measures the difference between the observed and expected counts under the model.
     # Get the deviance from the fitted model
@@ -129,25 +146,33 @@ getPredictedCount <- function(data,
     data$glmDegreesOfFreedom <- modelGlm$df.residual
     # Compute the p-value from the chi-square distribution
     data$glmPValueDeviance <- 1 - pchisq(modelGlm$deviance, modelGlm$df.residual)
-
+    
     # Pearson Chi-Squared Test - This test sums the squared differences between the observed and expected counts, scaled by the expected counts.
     # Compute Pearson's chi-squared test statistic
     data$glmPearsonChiSquare <- sum((data$observed - data$glmExpected) ^
                                       2 / data$glmExpected)
     # Compute p-value for the Pearson chi-squared test
     data$glmPPValuePearson <- 1 - pchisq(data$glmPearsonChiSquare, modelGlm$df.residual)
-
-    if (min(data$glmPearsonChiSquare,
-            data$glmPPValuePearson) > alpha) {
-      data$glmStable <- TRUE
-    } else {
-      data$glmStable <- FALSE
-    }
-
+    
   }, error = function(e) {
     # If there's an error, skip the glm part
     # message("\nError in glm fitting: ", e$message)
   })
+  
+  # browser()
+  # report <- data |> dplyr::select(
+  #   observed,
+  #   cyclopsExpected,
+  #   glmExpected,
+  #   cyclopsPValue,
+  #   glmPValue,
+  #   glmExpectedLowerBound,
+  #   glmExpectedUpperBound,
+  #   glmPPValuePearson,
+  #   glmPValueDeviance,
+  #   cyclopsStable,
+  #   glmStable
+  # )
   
   # Arrange the data based on timeId and select the 'observed' and 'expected' columns
   data <- data |>
@@ -299,11 +324,13 @@ checkIfCohortDiagnosticsIncidenceRateData <- function(data) {
 #' This function processes the cohort diagnostics incidence rate data. It filters the data based on certain conditions, calculates the incidence rate, and imputes missing years.
 #'
 #' @param cohortDiagnosticsIncidenceRateData A data frame that contains the columns cohortId, databaseId, gender, ageGroup, calendarYear, cohortCount, personYears, and incidenceRate.
-#' @param removeOutlierZeroCounts (Default TRUE) Do you want to remove continous zero counts in the beginning and end in the time series?
+#' @param removeOutlierZeroCounts (Default TRUE) Do you want to remove continuous zero counts in the beginning and end in the time series?
+#' @param removeOutlierUnstableDataSource (Default TRUE) Do you want to remove the outlier time windows that have dramatically lower denominator counts?
 #' @return A data frame with processed cohort diagnostics incidence rate data.
 #' @export
 processCohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidenceRateData,
-                                                      removeOutlierZeroCounts = TRUE) {
+                                                      removeOutlierZeroCounts = TRUE,
+                                                      removeOutlierUnstableDataSource = TRUE) {
   outputData <- cohortDiagnosticsIncidenceRateData |>
     dplyr::filter(personYears > 0) |> #remove any records with 0 or lower (below min cell count for privacy protection) person years
     dplyr::mutate(
@@ -346,8 +373,81 @@ processCohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidence
       dplyr::ungroup()
   }
   
+  combos <- outputData |>
+    dplyr::select(cohortId, databaseId) |>
+    dplyr::distinct()
+  
+  outputDataByCombo <- c()
+  for (i in (1:nrow(combos))) {
+    outputDataByCombo[[i]] <- outputData |>
+      dplyr::inner_join(combos[i, ], by = c("cohortId", "databaseId"))
+    
+    outputDataByCombo[[i]] <- checkFirstLastYearPersonYearStability(data = outputDataByCombo[[i]])
+  }
+  
+  outputData <- dplyr::bind_rows(outputDataByCombo) |>
+    dplyr::arrange(cohortId, databaseId, calendarYear)
+  
   return(outputData)
 }
+
+
+
+# Define a helper function to check stability for each group
+checkFirstLastYearPersonYearStability <- function(data) {
+  # Exclude first and last calendarYear for model training
+  trainData <- data |>
+    dplyr::filter(calendarYear != max(calendarYear),
+                  calendarYear != min(calendarYear))
+  
+  # Fit a linear model using trainData
+  if (nrow(trainData) > 1) {
+    # Ensure there are enough points to fit a model
+    model <- lm(personYears ~ calendarYear, data = trainData)
+    
+    # Calculate the residual standard error and significance threshold
+    residualStandardError <- summary(model)$sigma
+    
+    #keep a very high significance threshold of 2 SE
+    significanceThreshold <- 2 * residualStandardError
+    
+    # Predict the expected personYears for the last calendar year
+    lastYear <- max(data$calendarYear)
+    predictedPersonYearsLast <- predict(model, newdata = data.frame(calendarYear = lastYear))
+    actualPersonYearsLast <- data |>
+      dplyr::filter(calendarYear == lastYear) |>
+      dplyr::pull(personYears)
+    differenceActualToLast <- actualPersonYearsLast - predictedPersonYearsLast
+    stableLast <- abs(differenceActualToLast) > significanceThreshold
+    
+    # Predict the expected personYears for the first calendar year
+    firstYear <- min(data$calendarYear)
+    predictedPersonYearsFirst <- predict(model, newdata = data.frame(calendarYear = firstYear))
+    actualPersonYearsFirst <- data |>
+      dplyr::filter(calendarYear == firstYear) |>
+      dplyr::pull(personYears)
+    differenceActualToFirst <- actualPersonYearsFirst - predictedPersonYearsFirst
+    stableFirst <- abs(differenceActualToFirst) > significanceThreshold
+    
+    outputTestData <- dplyr::tibble(
+      calendarYear = c(lastYear, firstYear),
+      useYearData = c(stableLast |> as.integer(), stableFirst |> as.integer())
+    )
+    
+    data <- data |>
+      dplyr::left_join(outputTestData, by = c("calendarYear")) |>
+      tidyr::replace_na(list(useYearData = 1))
+    
+    # Return the stability result and difference
+    return(data)
+  } else {
+    return(data |>
+             dplyr::mutate(useYearData = as.integer(NA)))
+  }
+}
+
+
+
 
 
 #' Check Temporal Stability For Cohort Diagnostics Incidence Rate Data
@@ -392,7 +492,35 @@ checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDi
     combo <- combos[i, ]
     
     data <- observedCount |>
-      dplyr::inner_join(combo, by = c("cohortId", "databaseId"))
+      dplyr::inner_join(combo, by = c("cohortId", "databaseId")) |>
+      dplyr::arrange(calendarYear) |>
+      dplyr::mutate(
+        firstYearToCensor = as.Date(NA),
+        firstYearCensoredPersonYears = as.numeric(NA),
+        lastYearToCensor = as.Date(NA),
+        lastYearCensoredPersonYears = as.numeric(NA)
+      )
+    
+    lastYear <- data |>
+      dplyr::filter(useYearData == 0) |>
+      dplyr::filter(calendarYear > min(data$calendarYear))
+    
+    if (nrow(lastYear) > 0) {
+      data$lastYearToCensor <- lastYear$calendarYear
+      data$lastYearCensoredPersonYears <- lastYear$personYears
+    }
+    
+    firstYear <- data |>
+      dplyr::filter(useYearData == 0) |>
+      dplyr::filter(calendarYear == min(data$calendarYear))
+    
+    if (nrow(firstYear) > 0) {
+      data$firstYearToCensor <- firstYear$calendarYear
+      data$firstYearCensoredPersonYears <- firstYear$personYears
+    }
+    
+    data <- data |>
+      dplyr::filter(useYearData == 1)
     
     if (nrow(data) > 1) {
       predicted <- getPredictedCount(
@@ -418,23 +546,29 @@ checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDi
             digits = 4
           ),
           cyclopsPercentageDeviation = (observed - cyclopsExpected) / cyclopsExpected * 100,
-          cylopsExpected = round(x = cyclopsExpected, digits = 4)
-          # ,
-          #
-          # ####
-          # glmExpectedIncidenceRate = round(
-          #   x = (glmExpected / personYears) * 1000,
-          #   digits = 10
-          # ),
-          # glmObservedExpectedCountRatio = round(x = observed / glmExpected, digits = 4),
-          # glmObservedExpectedIncidenceRateRatio = round(
-          #   x = incidenceRate / glmExpectedIncidenceRate,
-          #   digits = 4
-          # ),
-          # glmPercentageDeviation = (observed - glmExpected) / glmExpected * 100,
-          # glmExpected = round(x = glmExpected, digits = 4)
+          cylopsExpected = round(x = cyclopsExpected, digits = 4),
+          
+          ####
+          glmExpectedIncidenceRate = round(
+            x = (glmExpected / personYears) * 1000,
+            digits = 10
+          ),
+          glmExpectedIncidenceRateUpperBound = round(
+            x = (glmExpectedUpperBound / personYears) * 1000,
+            digits = 10
+          ),
+          glmExpectedIncidenceRateLowerBound = round(
+            x = (glmExpectedLowerBound / personYears) * 1000,
+            digits = 10
+          ),
+          glmObservedExpectedCountRatio = round(x = observed / glmExpected, digits = 4),
+          glmObservedExpectedIncidenceRateRatio = round(
+            x = incidenceRate / glmExpectedIncidenceRate,
+            digits = 4
+          ),
+          glmPercentageDeviation = (observed - glmExpected) / glmExpected * 100,
+          glmExpected = round(x = glmExpected, digits = 4)
         )
-      
     }
     
     # Update the progress bar
@@ -444,7 +578,12 @@ checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDi
   # Close the progress bar
   close(pb)
   
-  output <- dplyr::bind_rows(output) |>
+  output <- dplyr::bind_rows(output)
+  
+  commonFields <- intersect(colnames(observedCount), colnames(output))
+  
+  output <- observedCount |>
+    dplyr::left_join(output, by = commonFields) |>
     dplyr::inner_join(cohort |>
                         dplyr::select(cohortId, cohortName), by = "cohortId") |>
     dplyr::relocate(cohortId, cohortName)
@@ -520,15 +659,33 @@ plotTemporalTrendExpectedObserved <- function(data,
                                               yLabel = "Incidence Rate",
                                               useMinimalTheme = TRUE,
                                               convertToPlotLy = FALSE,
-                                              plotSource = 'cyclops') {
+                                              plotSource = 'default') {
+  if (nrow(data) == 0) {
+    return(NULL)
+  }
+  
   if (plotSource == 'cyclops') {
     data$expected <- data$cyclopsExpected
     data$expectedIncidenceRate <- data$cyclopsExpectedIncidenceRate
     data$p <- data$cyclopsPValue
     data$ratio <- data$cyclopsRatio
     data$stable <- data$cyclopsStable
+  } else if (plotSource == 'glm') {
+    data$expected <- data$glmExpected
+    data$expectedIncidenceRate <- data$glmExpectedIncidenceRate
+    data$p <- data$glmPValue
+    data$ratio <- data$glmRatio
+    data$stable <- data$glmStable
+    data$expectedIncidenceRateUpperBound <- data$glmExpectedIncidenceRateUpperBound
+    data$expectedIncidenceRateLowerBound <- data$glmExpectedIncidenceRateLowerBound
   } else {
-    stop("glm is not done")
+    data$expected <- dplyr::coalesce(data$glmExpected, data$cyclopsExpected)
+    data$expectedIncidenceRate <- dplyr::coalesce(data$glmExpectedIncidenceRate, data$cyclopsExpectedIncidenceRate)
+    data$p <- dplyr::coalesce(data$glmPValue, data$cglmPValue)
+    data$ratio <- dplyr::coalesce(data$glmRatio, data$cyclopsRatio)
+    data$stable <- dplyr::coalesce(data$glmStable, data$cyclopsStable)
+    data$expectedIncidenceRateUpperBound <- data$glmExpectedIncidenceRateUpperBound
+    data$expectedIncidenceRateLowerBound <- data$glmExpectedIncidenceRateLowerBound
   }
   
   numberOfSplinesUsed <- if ('numberOfSplinesUsed' %in% colnames(data))
@@ -548,6 +705,7 @@ plotTemporalTrendExpectedObserved <- function(data,
     OhdsiHelpers::formatDecimalWithComma(min(data$p), decimalPlaces = 4),
     ". ratio = ",
     OhdsiHelpers::formatDecimalWithComma(min(data$ratio), decimalPlaces = 4),
+    "\n",
     "\n - ",
     min(data$zeroRecordLeadRemoved),
     " records with lead (left) zero counts found and has been removed",
@@ -556,10 +714,49 @@ plotTemporalTrendExpectedObserved <- function(data,
     " records with trail (right) zero counts found and has been removed"
   )
   
-  plotTitle <- if (min(data$stable) == 0) {
-    paste0(plotTitle, "\nUNSTABLE (FAILED Diagnostic)")
+  if (data |> dplyr::filter(useYearData == 0) |> nrow() > 0) {
+    reportData <- data |>
+      dplyr::filter(useYearData == 1)
+    
+    expectedMedian <- median(reportData$personYears[-1])
+    
+    if (any(!is.na(reportData$firstYearToCensor))) {
+      plotTitle <- paste0(
+        plotTitle ,
+        "\n - ",
+        " removed data from first calendar year ",
+        format(max(
+          reportData$firstYearToCensor, na.rm = TRUE
+        ), "%Y"),
+        " with ",
+        max(reportData$firstYearCensoredPersonYears) |> OhdsiHelpers::formatIntegerWithComma(),
+        " person years of data. Expected around: ",
+        expectedMedian |> OhdsiHelpers::formatIntegerWithComma()
+      )
+    }
+    
+    if (any(!is.na(reportData$lastYearToCensor))) {
+      plotTitle <- paste0(
+        plotTitle ,
+        "\n - ",
+        " removed data from last calendar year ",
+        format(max(
+          reportData$lastYearToCensor, na.rm = TRUE
+        ), "%Y"),
+        " with ",
+        max(reportData$lastYearCensoredPersonYears) |> OhdsiHelpers::formatIntegerWithComma(),
+        " person years of data. Expected around: ",
+        expectedMedian |> OhdsiHelpers::formatIntegerWithComma()
+      )
+    }
   } else {
-    paste0(plotTitle, "\nSTABLE (Did not fail diagnostic)")
+    plotTitle <- paste0(plotTitle, "\n - using all calendar years")
+  }
+  
+  plotTitle <- if (any(data$stable == FALSE, na.rm = TRUE)) {
+    paste0(plotTitle, "\n\nUNSTABLE (FAILED Diagnostic)")
+  } else {
+    paste0(plotTitle, "\n\nSTABLE (Did not fail diagnostic)")
   }
   
   p <- ggplot2::ggplot(data) +

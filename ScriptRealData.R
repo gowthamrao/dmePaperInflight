@@ -27,7 +27,6 @@ reportCohortCount <- cohortCount |>
                       dplyr::select(cohortId, cohortName), by = "cohortId") |>
   dplyr::relocate(cohortId, cohortName)
 
-
 #R2: stability----
 temporalStabilityOutput <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
   cohortDiagnosticsIncidenceRateData = incidenceRate,
@@ -47,8 +46,7 @@ cylopsStatisticallyUnstable <- temporalStabilityOutput |>
                 databaseId,
                 cyclopsStable,
                 cyclopsRatio,
-                cyclopsPValue,
-                glmStable) |>
+                cyclopsPValue) |>
   dplyr::distinct() |>
   dplyr::mutate(
     cyclopsRatio = OhdsiHelpers::formatDecimalWithComma(cyclopsRatio, decimalPlaces = 5),
@@ -57,15 +55,32 @@ cylopsStatisticallyUnstable <- temporalStabilityOutput |>
   dplyr::arrange(cohortId, databaseId)
 cylopsStatisticallyUnstable
 
+# #statistically unstable----
+glmStatisticallyUnstable <- temporalStabilityOutput |>
+  dplyr::filter(glmStable == FALSE) |>
+  dplyr::select(cohortId,
+                cohortName,
+                databaseId,
+                glmStable,
+                glmRatio,
+                glmPValue,
+                glmPPValuePearson) |>
+  dplyr::distinct() |>
+  dplyr::mutate(glmPPValuePearson = OhdsiHelpers::formatDecimalWithComma(glmPPValuePearson, decimalPlaces = 5)) |>
+  dplyr::arrange(cohortId, databaseId)
+glmStatisticallyUnstable
+
 
 #R3: pass or fail rate-----
 summarizeTemporalStability(temporalStabilityOutput, cylopsStatisticallyUnstable)
+summarizeTemporalStability(temporalStabilityOutput, glmStatisticallyUnstable)
 
 #clear rstudio plots
 if (!is.null(dev.list())) {
   dev.off()
 }
 
+debug(plotTemporalTrendExpectedObserved)
 #statistic fails
 plotsPureRedCellAplasia <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 207)
 plotsPureRedCellAplasia
