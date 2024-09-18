@@ -1,3 +1,86 @@
+
+source("performGAMAnalysis.R")
+
+# Reference population proportions (should come from an external source)
+referencePopulation <- data.frame(
+  ageGroup = c(
+    '0-9',
+    '10-19',
+    '20-29',
+    '30-39',
+    '40-49',
+    '50-59',
+    '60-69',
+    '70-79',
+    '80-89',
+    '90-99',
+    '100-109'
+  ),
+  gender = rep(c('Female', 'Male'), each = 11),
+  proportion = c(
+    0.030,
+    0.032,
+    0.035,
+    0.035,
+    0.031,
+    0.035,
+    0.033,
+    0.025,
+    0.011,
+    0.004,
+    0.002,
+    0.030,
+    0.032,
+    0.035,
+    0.034,
+    0.031,
+    0.035,
+    0.033,
+    0.024,
+    0.010,
+    0.002,
+    0.001
+  )
+) |> dplyr::tibble()
+
+drawPopulationPyramid <- function(data) {
+  # Ensure ggplot2 is installed
+  if (!requireNamespace("ggplot2", quietly = TRUE)) {
+    stop("Please install the ggplot2 package to use this function.")
+  }
+  
+  # Load ggplot2
+  library(ggplot2)
+  
+  # Extract the start of the age range for sorting
+  data$ageStart <- as.numeric(sub("-.*", "", data$ageGroup))
+  
+  # Order the data by the numeric start of the age group
+  data <- data[order(data$ageStart), ]
+  
+  # Adjust proportions for plotting (make male proportions negative)
+  data$proportion <- ifelse(data$gender == 'Male', -data$proportion, data$proportion)
+  
+  # Create the plot
+  p <- ggplot(data, aes(x = reorder(ageGroup, ageStart), y = proportion, fill = gender)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +  # Flip coordinates for pyramid style
+    scale_y_continuous(labels = abs) +  # Show positive y-axis labels
+    labs(title = "Population Pyramid", x = "Age Group", y = "Proportion of Population") +
+    scale_fill_manual(values = c("Male" = "blue", "Female" = "pink")) +
+    theme_minimal()
+  
+  # Display the plot
+  return(p)
+}
+
+# Example usage with the provided reference_population data frame
+drawPopulationPyramid(referencePopulation)
+
+
+
+
+
 #' Get Predicted Count in a Data Frame
 #'
 #' This function predicts the count of events in a data frame using a Poisson regression model with natural splines. It groups the data by timeSequenceField and fills in missing counts with predicted values.

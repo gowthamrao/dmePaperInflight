@@ -107,3 +107,5 @@ plotsDress
 
 plotsAli <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 736)
 plotsAli
+
+
