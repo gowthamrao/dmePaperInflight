@@ -1,4 +1,5 @@
 
+
 source("performGAMAnalysis.R")
 
 # Reference population proportions (should come from an external source)
@@ -62,7 +63,11 @@ drawPopulationPyramid <- function(data) {
   data$proportion <- ifelse(data$gender == 'Male', -data$proportion, data$proportion)
   
   # Create the plot
-  p <- ggplot(data, aes(x = reorder(ageGroup, ageStart), y = proportion, fill = gender)) +
+  p <- ggplot(data, aes(
+    x = reorder(ageGroup, ageStart),
+    y = proportion,
+    fill = gender
+  )) +
     geom_bar(stat = "identity") +
     coord_flip() +  # Flip coordinates for pyramid style
     scale_y_continuous(labels = abs) +  # Show positive y-axis labels
@@ -246,7 +251,6 @@ getPredictedCount <- function(data,
     # message("\nError in glm fitting: ", e$message)
   })
   
-  # browser()
   # report <- data |> dplyr::select(
   #   observed,
   #   cyclopsExpected,
@@ -756,20 +760,31 @@ plotTemporalTrendExpectedObserved <- function(data,
     data$expectedIncidenceRateLowerBound <- data$glmExpectedIncidenceRateLowerBound
   }
   
+  data <- data |>
+    dplyr::arrange(calendarYear) |>
+    dplyr::mutate(sequence = dplyr::row_number()) |>
+    dplyr::mutate(
+      rangeBuffer = 0.05 * (
+        max(incidenceRate, na.rm = TRUE) - min(incidenceRate, na.rm = TRUE)
+      ),
+      plotHeight = incidenceRate + rangeBuffer * ifelse(
+        test = sequence %% 2 == 0,
+        yes = 1.5,
+        no = -1.5
+      )  # Jitter up and down
+    )
+  
   data$expectedObservedText <- ifelse(
-    !is.na(data$expected) &
+    test =
+      !is.na(data$expected) &
       !is.na(data$cohortCount) &
       !is.nan(data$expected) &
       !is.nan(data$cohortCount) &
       !is.null(data$expected) & !is.null(data$cohortCount),
-    paste0(
-      "E:",
-      OhdsiHelpers::formatIntegerWithComma(data$expected),
-      "/",
-      "O:",
-      OhdsiHelpers::formatIntegerWithComma(data$cohortCount)
-    ),
-    NA  # You can choose to return NA or some other placeholder if the values are missing
+    yes =
+      OhdsiHelpers::formatIntegerWithComma(data$cohortCount),
+    no =
+      NA  # You can choose to return NA or some other placeholder if the values are missing
   )
   
   numberOfSplinesUsed <- if ('numberOfSplinesUsed' %in% colnames(data)) {
@@ -845,24 +860,6 @@ plotTemporalTrendExpectedObserved <- function(data,
     stableTitle <- "\n\nSTABLE (Did not fail LogLikelihood)"
   }
   
-  if (any(!is.na(data$expectedIncidenceRateLowerBound))) {
-    stableTitlePearson <- NULL
-    if (any(data$glmPearsonStable == FALSE, na.rm = TRUE)) {
-      stableTitlePearson <- " [Pearson FAILED]"
-    } else {
-      stableTitlePearson <- " [Pearson did not fail]"
-    }
-    
-    stableTitleDeviance <- NULL
-    if (any(data$glmDevianceStable == FALSE, na.rm = TRUE)) {
-      stableTitleDeviance <- " [G-test deviance FAILED]"
-    } else {
-      stableTitlePearson <- " [G-test deviance did not fail]"
-    }
-    
-    stableTitle <- paste0(stableTitle, stableTitlePearson, stableTitleDeviance)
-  }
-  
   plotTitle <- if (any(data$stable == FALSE, na.rm = TRUE)) {
     paste0(plotTitle, "\n\n", stableTitle)
   } else {
@@ -896,6 +893,18 @@ plotTemporalTrendExpectedObserved <- function(data,
         y = .data[["incidenceRate"]],
         linetype = "Observed"
       )) +
+      ggplot2::geom_text(
+        ggplot2::aes(
+          x = .data[["calendarYear"]],
+          y = plotHeight + 0.05,
+          # Adjust this offset to place the text above the lines
+          label = .data[["expectedObservedText"]]
+        ),
+        angle = 20,
+        hjust = -0.5,
+        size = 3,
+        na.rm = TRUE
+      ) +
       ggplot2::scale_linetype_manual(values = c("Expected" = "dashed", "Observed" = "solid")) +
       ggplot2::scale_y_continuous(limits = c(0, NA)) + # Ensure y-axis starts at 0
       ggplot2::labs(
@@ -916,6 +925,18 @@ plotTemporalTrendExpectedObserved <- function(data,
         y = .data[["incidenceRate"]],
         linetype = "Observed"
       )) +
+      ggplot2::geom_text(
+        ggplot2::aes(
+          x = .data[["calendarYear"]],
+          y = plotHeight + 0.05,
+          # Adjust this offset to place the text above the lines
+          label = .data[["expectedObservedText"]]
+        ),
+        angle = 20,
+        hjust = -0.5,
+        size = 3,
+        na.rm = TRUE
+      ) +
       ggplot2::scale_linetype_manual(values = c("Expected" = "dashed", "Observed" = "solid")) +
       ggplot2::scale_y_continuous(limits = c(0, NA)) + # Ensure y-axis starts at 0
       ggplot2::labs(
@@ -926,7 +947,6 @@ plotTemporalTrendExpectedObserved <- function(data,
       )
   }
   
-  #add data$expectedObservedText on x-axis above the calendar year ticks.
   
   p <- p + ggplot2::theme_minimal()
   
