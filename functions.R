@@ -219,6 +219,9 @@ getPredictedCount <- function(data,
     
     # These tests, although valid, give different results from Martijn's likelihood function.
     
+    
+    ## add alpha
+    
     # Deviance Test (G-test)
     # In Poisson regression, the deviance measures the difference between the observed and expected counts under the model.
     # Get the deviance from the fitted model
@@ -753,6 +756,22 @@ plotTemporalTrendExpectedObserved <- function(data,
     data$expectedIncidenceRateLowerBound <- data$glmExpectedIncidenceRateLowerBound
   }
   
+  data$expectedObservedText <- ifelse(
+    !is.na(data$expected) &
+      !is.na(data$cohortCount) &
+      !is.nan(data$expected) &
+      !is.nan(data$cohortCount) &
+      !is.null(data$expected) & !is.null(data$cohortCount),
+    paste0(
+      "E:",
+      OhdsiHelpers::formatIntegerWithComma(data$expected),
+      "/",
+      "O:",
+      OhdsiHelpers::formatIntegerWithComma(data$cohortCount)
+    ),
+    NA  # You can choose to return NA or some other placeholder if the values are missing
+  )
+  
   numberOfSplinesUsed <- if ('numberOfSplinesUsed' %in% colnames(data)) {
     max(data$numberOfSplinesUsed |> max(na.rm = TRUE))
   }
@@ -906,6 +925,8 @@ plotTemporalTrendExpectedObserved <- function(data,
         linetype = "Incidence Type"
       )
   }
+  
+  #add data$expectedObservedText on x-axis above the calendar year ticks.
   
   p <- p + ggplot2::theme_minimal()
   
