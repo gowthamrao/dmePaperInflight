@@ -473,7 +473,13 @@ processCohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidence
     outputDataByCombo[[i]] <- outputData |>
       dplyr::inner_join(combos[i, ], by = c("cohortId", "databaseId"))
     
-    outputDataByCombo[[i]] <- checkFirstLastYearPersonYearStability(data = outputDataByCombo[[i]])
+    if (all(outputDataByCombo[[i]]$zeroRecordLeadRemoved == 0,
+            outputDataByCombo[[i]]$zeroRecordTrailRemoved == 0)) {
+      outputDataByCombo[[i]] <- checkFirstLastYearPersonYearStability(data = outputDataByCombo[[i]])
+    } else {
+      outputDataByCombo[[i]] <- outputDataByCombo[[i]] |> 
+        dplyr::mutate(useYearData = as.integer(1))
+    }
   }
   
   outputData <- dplyr::bind_rows(outputDataByCombo) |>
