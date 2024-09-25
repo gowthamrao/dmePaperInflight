@@ -4,6 +4,10 @@
 
 
 
+
+
+
+
 source("performGAMAnalysis.R")
 
 # Reference population proportions (should come from an external source)
@@ -822,27 +826,22 @@ plotTemporalTrendExpectedObserved <- function(data,
       )  # Jitter up and down
     )
   
-  
   data$observedCount <- OhdsiHelpers::formatIntegerWithComma(data$cohortCount)
   
-  plotTitle <- paste0(min(data$cohortName),
-                      " (id: ",
-                      min(data$cohortId),
-                      ") ",
-                      min(data$databaseId))
+  plotTitle <- min(data$databaseId)
+  plotFootnote <- ""
+  
+  
+  overallObservedExpectedRatio <- data$ratio |> unique() |> as.numeric()
   
   if (any(!is.na(data$yearsWithNoCohortRecords))) {
-    plotTitle <- paste0(
-      plotTitle,
-      "\n Don't use (no records): ",
-      parseYears(data$yearsWithNoCohortRecords |> min())
-    )
+    plotFootnote <- paste0("Years not to use - no records: ",
+                           parseYears(data$yearsWithNoCohortRecords |> min()))
   }
   
   if (any(!is.na(data$yearsWithUnstablePersonYears))) {
-    plotTitle <- paste0(
-      plotTitle,
-      "\n Don't use (denominator unstable): ",
+    plotFootnote <- paste0(
+      "Years not to use - unstable: ",
       parseYears(data$yearsWithUnstablePersonYears |> min())
     )
   }
@@ -882,14 +881,15 @@ plotTemporalTrendExpectedObserved <- function(data,
         size = 3,
         na.rm = TRUE
       ) +
-      ggplot2::scale_linetype_manual(values = c("Expected" = "dashed", "Observed" = "solid")) +
+      # ggplot2::scale_linetype_manual(values = c("Expected" = "dashed", "Observed" = "solid")) +
       ggplot2::scale_y_continuous(limits = c(0, NA)) + # Ensure y-axis starts at 0
-      ggplot2::labs(
-        title = plotTitle,
-        x = "Calendar Year",
-        y = "Incidence Rate",
-        linetype = "Incidence Type"
-      )
+      ggplot2::scale_x_date(expand = ggplot2::expansion(mult = c(0.1, 0.1))) #+ Add padding on x-axis while preserving date format
+    # ggplot2::labs(
+    #   title = plotTitle,
+    #   x = "Calendar Year",
+    #   y = "Incidence Rate",
+    #   linetype = "Incidence Type"
+    # )
   } else {
     p <- ggplot2::ggplot(data) +
       ggplot2::geom_line(ggplot2::aes(
@@ -910,14 +910,16 @@ plotTemporalTrendExpectedObserved <- function(data,
         size = 3,
         na.rm = TRUE
       ) +
-      ggplot2::scale_linetype_manual(values = c("Expected" = "dashed", "Observed" = "solid")) +
+      # ggplot2::scale_linetype_manual(values = c("Expected" = "dashed", "Observed" = "solid")) +
       ggplot2::scale_y_continuous(limits = c(0, NA)) + # Ensure y-axis starts at 0
-      ggplot2::labs(
-        title = plotTitle,
-        x = "Calendar Year",
-        y = "Incidence Rate",
-        linetype = "Incidence Type"
-      )
+      ggplot2::scale_x_date(expand = ggplot2::expansion(mult = c(0.1, 0.1)))
+    # + # Add padding on x-axis while preserving date format
+    #   ggplot2::labs(
+    #     title = plotTitle,
+    #     x = "Calendar Year",
+    #     y = "Incidence Rate",
+    #     linetype = "Incidence Type"
+    #   )
   }
   
   
@@ -939,7 +941,49 @@ plotTemporalTrendExpectedObserved <- function(data,
     )
   }
   
-  p <- p + ggplot2::theme_minimal()
+  if (nchar(plotFootnote) > 0) {
+    p <- p + ggplot2::annotate(
+      "text",
+      x = mean(data$calendarYear),
+      y = 0.01 * max(
+        max(
+          data$incidenceRate,
+          data$glmExpectedIncidenceRateUpperBound
+        )
+      ),
+      # Positioning just below the plot, adjust as needed
+      label = plotFootnote,
+      hjust = 0.5,
+      size = 3,
+      color = "black"
+    )
+  }
+  
+  
+  if (overallObservedExpectedRatio != 1) {
+    p <- p + ggplot2::annotate(
+      "text",
+      x = mean(data$calendarYear),
+      y = 0.95 * max(
+        max(
+          data$incidenceRate,
+          data$glmExpectedIncidenceRateUpperBound
+        )
+      ),
+      # Positioning just below the plot, adjust as needed
+      label = paste0(
+        "Overall observed to expected ratio: ",
+        overallObservedExpectedRatio |> OhdsiHelpers::formatDecimalWithComma()
+      ),
+      hjust = 0.5,
+      size = 3,
+      color = "black"
+    )
+  }
+  
+  
+  p <- p + ggplot2::theme_minimal() |>
+    ggplot2::theme(legend.position = "none")
   
   if (convertToPlotLy) {
     # Convert ggplot object to plotly for interactive visualization
@@ -949,6 +993,8 @@ plotTemporalTrendExpectedObserved <- function(data,
     return(p)
   }
 }
+
+
 
 
 
@@ -1063,8 +1109,32 @@ createPlotsByDatabaseId <- function(data, cohortId) {
     plotTemporalTrendExpectedObserved(subsetData)
   })
   
-  return(plots)
+  # Get cohortName for the title
+  cohortName <- data |>
+    dplyr::filter(cohortId == !!cohortId) |>
+    dplyr::mutate(label = paste0(cohortId, ": ", cohortName)) |>
+    dplyr::pull(label) |>
+    unique()
+  
+  # Create cowPlots object
+  cowPlots <- cowplot::plot_grid(plotlist = plots, ncol = 2)
+  
+  # Create the title as a ggplot object
+  title <- cowplot::ggdraw() +
+    cowplot::draw_label(cohortName,
+                        fontface = 'bold',
+                        size = 15,
+                        hjust = 0.5)
+  
+  # Combine title and cowPlots into one plot with stacked layout
+  titledPlot <- cowplot::plot_grid(title,
+                                   cowPlots,
+                                   ncol = 1,
+                                   rel_heights = c(0.1, 1))
+  
+  return(titledPlot)
 }
+
 
 
 summarizeTemporalStability <- function(temporalStabilityOutput,
