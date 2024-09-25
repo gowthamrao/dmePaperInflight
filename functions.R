@@ -1,5 +1,9 @@
 
 
+
+
+
+
 source("performGAMAnalysis.R")
 
 # Reference population proportions (should come from an external source)
@@ -443,7 +447,7 @@ processCohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidence
                   zeroRecordTrailRemoved = 0)
   
   if (removeOutlierZeroCounts) {
-    outputData <- outputData |>
+    outputDataFiltered <- outputData |>
       dplyr::group_by(cohortId, databaseId) |>
       dplyr::arrange(calendarYear) |>
       dplyr::mutate(
@@ -464,6 +468,26 @@ processCohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidence
       dplyr::ungroup()
   }
   
+  yearsWithNoRecords <- outputData |>
+    dplyr::select(cohortId, databaseId, calendarYear) |>
+    dplyr::distinct() |>
+    dplyr::left_join(
+      outputDataFiltered |>
+        dplyr::select(cohortId, databaseId, calendarYear) |>
+        dplyr::mutate(keepYear = 1)
+    ) |>
+    dplyr::filter(is.na(keepYear)) |>
+    dplyr::mutate(year = as.integer(format(calendarYear, "%Y"))) |>
+    dplyr::select(cohortId, databaseId, year) |>
+    dplyr::arrange(cohortId, databaseId, year) |>
+    dplyr::group_by(cohortId, databaseId) |>
+    dplyr::summarise(yearsWithNoCohortRecords = as.character(paste0(year, collapse = ", ")),
+                     .groups = "keep") |>
+    dplyr::ungroup()
+  
+  outputData <- outputDataFiltered |>
+    dplyr::left_join(yearsWithNoRecords, by = c("cohortId", "databaseId"))
+  
   combos <- outputData |>
     dplyr::select(cohortId, databaseId) |>
     dplyr::distinct()
@@ -473,17 +497,34 @@ processCohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidence
     outputDataByCombo[[i]] <- outputData |>
       dplyr::inner_join(combos[i, ], by = c("cohortId", "databaseId"))
     
-    if (all(outputDataByCombo[[i]]$zeroRecordLeadRemoved == 0,
-            outputDataByCombo[[i]]$zeroRecordTrailRemoved == 0)) {
+    if (all(
+      outputDataByCombo[[i]]$zeroRecordLeadRemoved == 0,
+      outputDataByCombo[[i]]$zeroRecordTrailRemoved == 0
+    )) {
       outputDataByCombo[[i]] <- checkFirstLastYearPersonYearStability(data = outputDataByCombo[[i]])
     } else {
-      outputDataByCombo[[i]] <- outputDataByCombo[[i]] |> 
+      outputDataByCombo[[i]] <- outputDataByCombo[[i]] |>
         dplyr::mutate(useYearData = as.integer(1))
     }
   }
   
   outputData <- dplyr::bind_rows(outputDataByCombo) |>
     dplyr::arrange(cohortId, databaseId, calendarYear)
+  
+  yearsWithUnstablePersonYears <- outputData |>
+    dplyr::filter(useYearData == 0) |>
+    dplyr::select(cohortId, databaseId, calendarYear) |>
+    dplyr::distinct() |>
+    dplyr::arrange(cohortId, databaseId, calendarYear) |>
+    dplyr::group_by(cohortId, databaseId) |>
+    dplyr::mutate(year = as.integer(format(calendarYear, "%Y"))) |>
+    dplyr::summarise(yearsWithUnstablePersonYears = as.character(paste0(year, collapse = ", ")),
+                     .groups = "keep") |>
+    dplyr::ungroup()
+  
+  outputData <- outputData |>
+    dplyr::left_join(yearsWithUnstablePersonYears,
+                     by = c("cohortId", "databaseId"))
   
   return(outputData)
 }
@@ -725,6 +766,7 @@ plotSimpleTemporalTrend <- function(data,
 
 
 
+
 #' Plot Temporal Trend with Expected and Observed Incidence Rates
 #'
 #' This function generates a line plot comparing expected and observed incidence rates over time.
@@ -780,96 +822,29 @@ plotTemporalTrendExpectedObserved <- function(data,
       )  # Jitter up and down
     )
   
-  data$expectedObservedText <- ifelse(
-    test =
-      !is.na(data$expected) &
-      !is.na(data$cohortCount) &
-      !is.nan(data$expected) &
-      !is.nan(data$cohortCount) &
-      !is.null(data$expected) & !is.null(data$cohortCount),
-    yes =
-      OhdsiHelpers::formatIntegerWithComma(data$cohortCount),
-    no =
-      NA  # You can choose to return NA or some other placeholder if the values are missing
-  )
   
-  numberOfSplinesUsed <- if ('numberOfSplinesUsed' %in% colnames(data)) {
-    max(data$numberOfSplinesUsed |> max(na.rm = TRUE))
-  }
-  else {
-    0
+  data$observedCount <- OhdsiHelpers::formatIntegerWithComma(data$cohortCount)
+  
+  plotTitle <- paste0(min(data$cohortName),
+                      " (id: ",
+                      min(data$cohortId),
+                      ") ",
+                      min(data$databaseId))
+  
+  if (any(!is.na(data$yearsWithNoCohortRecords))) {
+    plotTitle <- paste0(
+      plotTitle,
+      "\n Don't use (no records): ",
+      parseYears(data$yearsWithNoCohortRecords |> min())
+    )
   }
   
-  plotTitle <- paste0(
-    min(data$cohortName),
-    " (id: ",
-    min(data$cohortId),
-    ")\n",
-    min(data$databaseId),
-    "\nObserved vs Expected. Splines used = ",
-    numberOfSplinesUsed,
-    ". p-value: ",
-    OhdsiHelpers::formatDecimalWithComma(min(data$p), decimalPlaces = 4),
-    ". ratio = ",
-    OhdsiHelpers::formatDecimalWithComma(min(data$ratio), decimalPlaces = 4),
-    "\n",
-    "\n - ",
-    min(data$zeroRecordLeadRemoved),
-    " records with lead (left) zero counts found and has been removed",
-    "\n - ",
-    min(data$zeroRecordTrailRemoved),
-    " records with trail (right) zero counts found and has been removed"
-  )
-  
-  if (data |> dplyr::filter(useYearData == 0) |> nrow() > 0) {
-    reportData <- data |>
-      dplyr::filter(useYearData == 1)
-    
-    expectedMedian <- median(reportData$personYears[-1])
-    
-    if (any(!is.na(reportData$firstYearToCensor))) {
-      plotTitle <- paste0(
-        plotTitle ,
-        "\n - ",
-        " removed data from first calendar year ",
-        format(max(
-          reportData$firstYearToCensor, na.rm = TRUE
-        ), "%Y"),
-        " with ",
-        max(reportData$firstYearCensoredPersonYears) |> OhdsiHelpers::formatIntegerWithComma(),
-        " person years of data. Expected around: ",
-        expectedMedian |> OhdsiHelpers::formatIntegerWithComma()
-      )
-    }
-    
-    if (any(!is.na(reportData$lastYearToCensor))) {
-      plotTitle <- paste0(
-        plotTitle ,
-        "\n - ",
-        " removed data from last calendar year ",
-        format(max(
-          reportData$lastYearToCensor, na.rm = TRUE
-        ), "%Y"),
-        " with ",
-        max(reportData$lastYearCensoredPersonYears) |> OhdsiHelpers::formatIntegerWithComma(),
-        " person years of data. Expected around: ",
-        expectedMedian |> OhdsiHelpers::formatIntegerWithComma()
-      )
-    }
-  } else {
-    plotTitle <- paste0(plotTitle, "\n - using all calendar years")
-  }
-  
-  if (any(data$stable == FALSE, na.rm = TRUE)) {
-    stableTitle <- "\n\nUNSTABLE (FAILED LogLikelihood)"
-  } else {
-    stableTitle <- "\n\nSTABLE (Did not fail LogLikelihood)"
-  }
-  
-  plotTitle <- if (any(data$stable == FALSE, na.rm = TRUE)) {
-    paste0(plotTitle, "\n\n", stableTitle)
-  } else {
-    paste0(plotTitle, "\n\n", stableTitle)
+  if (any(!is.na(data$yearsWithUnstablePersonYears))) {
+    plotTitle <- paste0(
+      plotTitle,
+      "\n Don't use (denominator unstable): ",
+      parseYears(data$yearsWithUnstablePersonYears |> min())
+    )
   }
   
   # Dynamically generate the column names for the confidence interval
@@ -900,12 +875,8 @@ plotTemporalTrendExpectedObserved <- function(data,
         linetype = "Observed"
       )) +
       ggplot2::geom_text(
-        ggplot2::aes(
-          x = .data[["calendarYear"]],
-          y = plotHeight + 0.05,
-          # Adjust this offset to place the text above the lines
-          label = .data[["expectedObservedText"]]
-        ),
+        ggplot2::aes(x = .data[["calendarYear"]], y = plotHeight, # Adjust this offset to place the text above the lines
+                     label = .data[["observedCount"]]),
         angle = 20,
         hjust = -0.5,
         size = 3,
@@ -932,12 +903,8 @@ plotTemporalTrendExpectedObserved <- function(data,
         linetype = "Observed"
       )) +
       ggplot2::geom_text(
-        ggplot2::aes(
-          x = .data[["calendarYear"]],
-          y = plotHeight + 0.05,
-          # Adjust this offset to place the text above the lines
-          label = .data[["expectedObservedText"]]
-        ),
+        ggplot2::aes(x = .data[["calendarYear"]], y = plotHeight, # Adjust this offset to place the text above the lines
+                     label = .data[["observedCount"]]),
         angle = 20,
         hjust = -0.5,
         size = 3,
@@ -953,6 +920,24 @@ plotTemporalTrendExpectedObserved <- function(data,
       )
   }
   
+  
+  # Add "F" indicator only at the first occurrence of calendarYear where stable == 1
+  didFail <- max(ifelse(data$stable == 0, 1, 0))
+  
+  if (didFail == 1) {
+    firstFailYear <- data |> dplyr::filter(stable == 0) |> dplyr::slice(1:2) |> dplyr::pull(calendarYear) |> max()
+    
+    p <- p + ggplot2::annotate(
+      "text",
+      x = firstFailYear,
+      # Set the x value directly
+      y = max(data$incidenceRate) / 2 ,
+      # Adjust the y position as needed
+      label = "F",
+      color = "red",
+      size = 16
+    )
+  }
   
   p <- p + ggplot2::theme_minimal()
   
@@ -1125,4 +1110,35 @@ summarizeTemporalStability <- function(temporalStabilityOutput,
     "-----",
     "\n"
   )
+}
+
+
+parseYears <- function(yearString) {
+  years <- as.integer(strsplit(yearString, ",\\s*")[[1]])
+  
+  if (length(years) == 1) {
+    return(yearString)
+  }
+  ranges <- list()
+  start <- years[1]
+  
+  for (i in 2:length(years)) {
+    if (years[i] != years[i - 1] + 1) {
+      if (start == years[i - 1]) {
+        ranges <- append(ranges, as.character(start))
+      } else {
+        ranges <- append(ranges, paste(start, years[i - 1], sep = ":"))
+      }
+      start <- years[i]
+    }
+  }
+  
+  # Handle the last range
+  if (start == years[length(years)]) {
+    ranges <- append(ranges, as.character(start))
+  } else {
+    ranges <- append(ranges, paste(start, years[length(years)], sep = ":"))
+  }
+  
+  return(paste(ranges, collapse = ", "))
 }
