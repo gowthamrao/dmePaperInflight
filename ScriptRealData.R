@@ -86,6 +86,7 @@ if (!is.null(dev.list())) {
   dev.off()
 }
 
+
 #statistic fails
 plotsPureRedCellAplasia <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 207)
 plotsPureRedCellAplasia
