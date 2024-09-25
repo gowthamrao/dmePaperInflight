@@ -806,12 +806,12 @@ plotTemporalTrendExpectedObserved <- function(data,
     data$expectedIncidenceRateUpperBound <- data$glmExpectedIncidenceRateUpperBound
     data$expectedIncidenceRateLowerBound <- data$glmExpectedIncidenceRateLowerBound
   } else {
-    data$expected <- dplyr::coalesce(data$glmExpected, data$cyclopsExpected)
-    data$expectedIncidenceRate <- dplyr::coalesce(data$glmExpectedIncidenceRate,
-                                                  data$cyclopsExpectedIncidenceRate)
-    data$p <- dplyr::coalesce(data$glmPValue, data$cyclopsPValue) |> max(na.rm = TRUE)
-    data$ratio <- dplyr::coalesce(data$glmRatio, data$cyclopsRatio) |> max(na.rm = TRUE)
-    data$stable <- dplyr::coalesce(data$glmStable, data$cyclopsStable) |> max(na.rm = TRUE)
+    data$expected <- dplyr::coalesce(data$cyclopsExpected, data$glmExpected)
+    data$expectedIncidenceRate <- dplyr::coalesce(data$cyclopsExpectedIncidenceRate,
+                                                  data$glmExpectedIncidenceRate)
+    data$p <- dplyr::coalesce(data$cyclopsPValue, data$glmPValue) |> max(na.rm = TRUE)
+    data$ratio <- dplyr::coalesce(data$cyclopsRatio, data$glmRatio) |> max(na.rm = TRUE)
+    data$stable <- dplyr::coalesce(data$cyclopsStable, data$glmStable) |> max(na.rm = TRUE)
     data$expectedIncidenceRateUpperBound <- data$glmExpectedIncidenceRateUpperBound
     data$expectedIncidenceRateLowerBound <- data$glmExpectedIncidenceRateLowerBound
   }
@@ -823,7 +823,7 @@ plotTemporalTrendExpectedObserved <- function(data,
       rangeBuffer = 0.05 * (
         max(incidenceRate, na.rm = TRUE) - min(incidenceRate, na.rm = TRUE)
       ),
-      plotHeight = incidenceRate + rangeBuffer * ifelse(
+      annotationHeight = incidenceRate + rangeBuffer * ifelse(
         test = sequence %% 2 == 0,
         yes = 1.5,
         no = -1.5
@@ -854,6 +854,19 @@ plotTemporalTrendExpectedObserved <- function(data,
   lowerBoundCol <- "expectedIncidenceRateLowerBound"
   upperBoundCol <- "expectedIncidenceRateUpperBound"
   
+  plotYAxisMaxValue <- max(data$expectedIncidenceRateUpperBound,
+                           data$expectedIncidenceRate,
+                           na.rm = TRUE)
+  
+  plotYAxisMinValue <- min(
+    data$expectedIncidenceRateLowerBound,
+    data$expectedIncidenceRateUpperBound,
+    data$expectedIncidenceRate,
+    na.rm = TRUE
+  )
+  
+  plotYAxisRange <- abs(plotYAxisMaxValue - plotYAxisMinValue)
+  
   # Check if the dynamically named UpperBound and LowerBound columns exist in the data
   if (lowerBoundCol %in% colnames(data) &&
       upperBoundCol %in% colnames(data)) {
@@ -878,7 +891,7 @@ plotTemporalTrendExpectedObserved <- function(data,
         linetype = "Observed"
       )) +
       ggplot2::geom_text(
-        ggplot2::aes(x = .data[["calendarYear"]], y = plotHeight, # Adjust this offset to place the text above the lines
+        ggplot2::aes(x = .data[["calendarYear"]], y = annotationHeight, # Adjust this offset to place the text above the lines
                      label = .data[["observedCount"]]),
         angle = 20,
         hjust = -0.5,
@@ -887,7 +900,8 @@ plotTemporalTrendExpectedObserved <- function(data,
       ) +
       # ggplot2::scale_linetype_manual(values = c("Expected" = "dashed", "Observed" = "solid")) +
       ggplot2::scale_y_continuous(
-        limits = c(0, NA),  # Ensure y-axis starts at 0
+        limits = c(NA, plotYAxisMaxValue),
+        # To Ensure y-axis starts at 0 change NA to 0
         expand = ggplot2::expansion(mult = c(0.05, 0.3))  # Add padding on y-axis, 5% below, 10% above
       ) +
       ggplot2::scale_x_date(expand = ggplot2::expansion(mult = c(0.1, 0.1))) + #Add padding on x-axis while preserving date format
@@ -905,7 +919,7 @@ plotTemporalTrendExpectedObserved <- function(data,
         linetype = "Observed"
       )) +
       ggplot2::geom_text(
-        ggplot2::aes(x = .data[["calendarYear"]], y = plotHeight, # Adjust this offset to place the text above the lines
+        ggplot2::aes(x = .data[["calendarYear"]], y = annotationHeight, # Adjust this offset to place the text above the lines
                      label = .data[["observedCount"]]),
         angle = 20,
         hjust = -0.5,
@@ -914,12 +928,13 @@ plotTemporalTrendExpectedObserved <- function(data,
       ) +
       # ggplot2::scale_linetype_manual(values = c("Expected" = "dashed", "Observed" = "solid")) +
       ggplot2::scale_y_continuous(
-        limits = c(0, NA),  # Ensure y-axis starts at 0
+        limits = c(NA, plotYAxisMaxValue),
+        # To Ensure y-axis starts at 0 change NA to 0
         expand = ggplot2::expansion(mult = c(0.05, 0.3))  # Add padding on y-axis, 5% below, 10% above
       ) +
-      ggplot2::scale_x_date(expand = ggplot2::expansion(mult = c(0.1, 0.1))) + 
-    # Add padding on x-axis while preserving date format
-    ggplot2::labs(y = yAxisTitle, x = xAxisTitle)  # Add axis titles
+      ggplot2::scale_x_date(expand = ggplot2::expansion(mult = c(0.1, 0.1))) +
+      # Add padding on x-axis while preserving date format
+      ggplot2::labs(y = yAxisTitle, x = xAxisTitle)  # Add axis titles
   }
   
   
@@ -928,55 +943,54 @@ plotTemporalTrendExpectedObserved <- function(data,
   
   if (didFail == 1) {
     firstFailYear <- data |> dplyr::filter(stable == 0) |> dplyr::slice(1:2) |> dplyr::pull(calendarYear) |> max()
-    
+ 
     p <- p + ggplot2::annotate(
       "text",
       x = firstFailYear,
       # Set the x value directly
-      y = max(data$incidenceRate) / 2 ,
+      y = max(
+        plotYAxisMinValue + (0.50 * plotYAxisRange),
+        0.5 * plotYAxisMaxValue
+      ),
       # Adjust the y position as needed
       label = "F",
       color = "red",
-      size = 16
+      size = 20
     )
   }
   
   if (nchar(plotFootnote) > 0) {
     p <- p + ggplot2::annotate(
       "text",
-      x = mean(data$calendarYear),
-      y = 0.01 * max(
-        dplyr::coalesce(
-          data$incidenceRate,
-          data$glmExpectedIncidenceRateUpperBound
-        )
+      x = min(data$calendarYear),
+      y = max(
+        plotYAxisMinValue + (0.90 * plotYAxisRange),
+        0.9 * plotYAxisMaxValue
       ),
       # Positioning just below the plot, adjust as needed
       label = plotFootnote,
-      hjust = 0.5,
-      size = 3,
-      color = "black"
+      hjust = 0,
+      # Left justify
+      size = 2,
+      color = "blue"
     )
   }
-  
   
   if (overallObservedExpectedRatio != 1) {
     p <- p + ggplot2::annotate(
       "text",
-      x = mean(data$calendarYear),
-      y = 1.20 * max(
-        dplyr::coalesce(
-          data$incidenceRate,
-          data$glmExpectedIncidenceRateUpperBound
-        )
+      x = min(data$calendarYear),
+      y = max(
+        plotYAxisMinValue + (0.8 * plotYAxisRange),
+        0.8 * plotYAxisMaxValue
       ),
       # Positioning just below the plot, adjust as needed
       label = paste0(
         "Overall observed to expected ratio: ",
         overallObservedExpectedRatio |> OhdsiHelpers::formatDecimalWithComma()
       ),
-      hjust = 0.5,
-      size = 3,
+      hjust = 0,
+      size = 2,
       color = "blue"
     )
   }
@@ -984,13 +998,14 @@ plotTemporalTrendExpectedObserved <- function(data,
   p <- p + ggplot2::annotate(
     "text",
     x = mean(data$calendarYear),
-    y = 1.5 * max(
-      dplyr::coalesce(data$incidenceRate, data$glmExpectedIncidenceRateUpperBound)
+    y = max(
+      plotYAxisMinValue + (0.99 * plotYAxisRange),
+      0.99 * plotYAxisMaxValue
     ),
     # Positioning just below the plot, adjust as needed
     label = data$databaseId |> unique(),
     hjust = 0.5,
-    size = 4,
+    size = 6,
     color = "black"
   )
   
@@ -1112,15 +1127,14 @@ createPlotsByDatabaseId <- function(data, cohortId) {
   # Extract unique databaseIds
   databaseIds <- data$databaseId |> unique() |> sort()
   
-  # Create a list of plots for each databaseId
-  plots <- lapply(databaseIds, function(dbId) {
-    # Filter data for the given cohortId and databaseId
-    subsetData <- data |>
-      dplyr::filter(cohortId == !!cohortId & databaseId == !!dbId)
-    
-    # Create the plot using your function plotTemporalTrendExpectedObserved
-    plotTemporalTrendExpectedObserved(subsetData)
-  })
+  plots <- c()
+  
+  for (i in (1:length(databaseIds))) {
+    plots[[databaseIds[[i]]]] <- # Create the plot using your function plotTemporalTrendExpectedObserved
+      plotTemporalTrendExpectedObserved(data |>
+                                          dplyr::filter(cohortId == !!cohortId &
+                                                          databaseId == databaseIds[[i]]))
+  }
   
   # Create cowPlots object ensuring aspect ratio is preserved
   cowPlots <- cowplot::plot_grid(plotlist = plots, ncol = 2, align = "v", axis = "lr", rel_heights = rep(1, length(plots)))

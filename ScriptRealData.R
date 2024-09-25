@@ -94,7 +94,8 @@ plotsPureRedCellAplasia
 plotsPolyMorphicVentricularTachycardia <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 275)
 plotsPolyMorphicVentricularTachycardia
 
-plotFirstAcuteHepaticFailure <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 724)
+debug(plotTemporalTrendExpectedObserved)
+plotFirstAcuteHepaticFailure <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 723)
 plotFirstAcuteHepaticFailure
 
 plotAutoimmuneHepatitis <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 729)
@@ -108,5 +109,10 @@ plotsDress
 
 plotsAli <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 736)
 plotsAli
+
+
+
+plotsAcutePancreatitis <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 730)
+plotsAcutePancreatitis
 
 
