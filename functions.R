@@ -10,6 +10,7 @@
 
 
 
+
 source("performGAMAnalysis.R")
 
 # Reference population proportions (should come from an external source)
@@ -370,6 +371,7 @@ likelihoodComparison <- function(data,
 }
 
 
+
 #' Check If Data is Cohort Diagnostics Incidence Rate Data
 #'
 #' This function checks if the input data is a data frame and contains all the expected columns with the correct data types for cohort diagnostics incidence rate data.
@@ -377,7 +379,7 @@ likelihoodComparison <- function(data,
 #' @param data A data frame that is expected to contain the columns cohortCount, personYears, gender, ageGroup, calendarYear, incidenceRate, cohortId, and databaseId.
 #' @return This function does not return a value. It stops and throws an error if the input data does not meet the expected conditions.
 #' @export
-checkIfCohortDiagnosticsIncidenceRateData <- function(data) {
+checkIfCohortDiagnosticsIncidenceRateDataStratifiedOnlyByCalendarYear <- function(data) {
   # Check if data is a data frame
   if (!is.data.frame(data)) {
     stop("Input data must be a data frame.")
@@ -429,18 +431,18 @@ checkIfCohortDiagnosticsIncidenceRateData <- function(data) {
 #' @param removeOutlierUnstableDataSource (Default TRUE) Do you want to remove the outlier time windows that have dramatically lower denominator counts?
 #' @return A data frame with processed cohort diagnostics incidence rate data.
 #' @export
-processCohortDiagnosticsIncidenceRateData <- function(cohortDiagnosticsIncidenceRateData,
-                                                      removeOutlierZeroCounts = TRUE,
-                                                      removeOutlierUnstableDataSource = TRUE) {
+processCohortDiagnosticsIncidenceRateDataStratifiedOnlyByCalendarYear <- function(cohortDiagnosticsIncidenceRateData,
+                                                                                  removeOutlierZeroCounts = TRUE,
+                                                                                  removeOutlierUnstableDataSource = TRUE) {
   outputData <- cohortDiagnosticsIncidenceRateData |>
     dplyr::filter(personYears > 0) |> #remove any records with 0 or lower (below min cell count for privacy protection) person years
     dplyr::mutate(
       # to adjust for min cell count privacy protection output in CohortDiagnostics
-      cohortCount = abs(cohortCount),
-      personYears = abs(personYears),
-      incidenceRate = abs(incidenceRate),
+      cohortCount = ifelse(cohortCount < 0, 1, cohortCount),
+      personYears = ifelse(personYears < 0, 1, personYears),
       calendarYear = as.integer(calendarYear)
     ) |>
+    dplyr::mutate(incidenceRate = (cohortCount / personYears) * 1000) |>
     dplyr::select(cohortId,
                   databaseId,
                   calendarYear,
@@ -614,9 +616,9 @@ checkTemporalStabilityForcohortDiagnosticsIncidenceRateData <- function(cohortDi
                                                                         maxRatio = 1.25,
                                                                         alpha = 0.05,
                                                                         removeOutlierZeroCounts = TRUE) {
-  checkIfCohortDiagnosticsIncidenceRateData(cohortDiagnosticsIncidenceRateData)
+  checkIfCohortDiagnosticsIncidenceRateDataStratifiedOnlyByCalendarYear(cohortDiagnosticsIncidenceRateData)
   
-  observedCount <- processCohortDiagnosticsIncidenceRateData(
+  observedCount <- processCohortDiagnosticsIncidenceRateDataStratifiedOnlyByCalendarYear(
     cohortDiagnosticsIncidenceRateData = cohortDiagnosticsIncidenceRateData,
     removeOutlierZeroCounts = removeOutlierZeroCounts
   )
@@ -835,7 +837,6 @@ plotTemporalTrendExpectedObserved <- function(data,
   plotTitle <- min(data$databaseId)
   plotFootnote <- ""
   
-  
   overallObservedExpectedRatio <- data$ratio |> unique() |> as.numeric()
   
   if (any(!is.na(data$yearsWithNoCohortRecords))) {
@@ -866,6 +867,9 @@ plotTemporalTrendExpectedObserved <- function(data,
   )
   
   plotYAxisRange <- abs(plotYAxisMaxValue - plotYAxisMinValue)
+  
+  plotYAxisMaxValue <- plotYAxisMaxValue + min(0.4 * plotYAxisRange, 0.4 *
+                                                 plotYAxisMaxValue)
   
   # Check if the dynamically named UpperBound and LowerBound columns exist in the data
   if (lowerBoundCol %in% colnames(data) &&
@@ -902,7 +906,7 @@ plotTemporalTrendExpectedObserved <- function(data,
       ggplot2::scale_y_continuous(
         limits = c(NA, plotYAxisMaxValue),
         # To Ensure y-axis starts at 0 change NA to 0
-        expand = ggplot2::expansion(mult = c(0.05, 0.3))  # Add padding on y-axis, 5% below, 10% above
+        expand = ggplot2::expansion(mult = c(0.1, 0.1))  # Add padding on y-axis, 5% below, 10% above
       ) +
       ggplot2::scale_x_date(expand = ggplot2::expansion(mult = c(0.1, 0.1))) + #Add padding on x-axis while preserving date format
       ggplot2::labs(y = yAxisTitle, x = xAxisTitle)  # Add axis titles
@@ -930,7 +934,7 @@ plotTemporalTrendExpectedObserved <- function(data,
       ggplot2::scale_y_continuous(
         limits = c(NA, plotYAxisMaxValue),
         # To Ensure y-axis starts at 0 change NA to 0
-        expand = ggplot2::expansion(mult = c(0.05, 0.3))  # Add padding on y-axis, 5% below, 10% above
+        expand = ggplot2::expansion(mult = c(0.1, 0.1))  # Add padding on y-axis, 5% below, 10% above
       ) +
       ggplot2::scale_x_date(expand = ggplot2::expansion(mult = c(0.1, 0.1))) +
       # Add padding on x-axis while preserving date format
@@ -943,7 +947,7 @@ plotTemporalTrendExpectedObserved <- function(data,
   
   if (didFail == 1) {
     firstFailYear <- data |> dplyr::filter(stable == 0) |> dplyr::slice(1:2) |> dplyr::pull(calendarYear) |> max()
- 
+    
     p <- p + ggplot2::annotate(
       "text",
       x = firstFailYear,
@@ -986,7 +990,7 @@ plotTemporalTrendExpectedObserved <- function(data,
       ),
       # Positioning just below the plot, adjust as needed
       label = paste0(
-        "Overall observed to expected ratio: ",
+        "OE ratio: ",
         overallObservedExpectedRatio |> OhdsiHelpers::formatDecimalWithComma()
       ),
       hjust = 0,
@@ -995,12 +999,13 @@ plotTemporalTrendExpectedObserved <- function(data,
     )
   }
   
+  
   p <- p + ggplot2::annotate(
     "text",
     x = mean(data$calendarYear),
     y = max(
-      plotYAxisMinValue + (0.99 * plotYAxisRange),
-      0.99 * plotYAxisMaxValue
+      plotYAxisMinValue + (1.0 * plotYAxisRange),
+      1.0 * plotYAxisMaxValue
     ),
     # Positioning just below the plot, adjust as needed
     label = data$databaseId |> unique(),
@@ -1123,21 +1128,35 @@ createFakeIncidenceRateData <- function(numberOfYears,
   return(output)
 }
 
-createPlotsByDatabaseId <- function(data, cohortId) {
+createPlotsByDatabaseId <- function(data,
+                                    cohortId,
+                                    plotWidth = 20,
+                                    plotHeight = 8) {
   # Extract unique databaseIds
   databaseIds <- data$databaseId |> unique() |> sort()
   
-  plots <- c()
+  # Initialize an empty list to store the individual plots
+  plots <- list()
   
-  for (i in (1:length(databaseIds))) {
-    plots[[databaseIds[[i]]]] <- # Create the plot using your function plotTemporalTrendExpectedObserved
+  # Loop through each databaseId and generate the plot
+  for (i in seq_along(databaseIds)) {
+    plots[[databaseIds[[i]]]] <-
       plotTemporalTrendExpectedObserved(data |>
                                           dplyr::filter(cohortId == !!cohortId &
-                                                          databaseId == databaseIds[[i]]))
+                                                          databaseId == databaseIds[[i]])) +
+      ggplot2::theme(aspect.ratio = plotHeight / plotWidth)  # Maintain aspect ratio
   }
   
+  # Dynamically adjust ncol based on the number of plots for better layout
+  ncol <- ifelse(length(plots) > 3, 3, 2)
+  
   # Create cowPlots object ensuring aspect ratio is preserved
-  cowPlots <- cowplot::plot_grid(plotlist = plots, ncol = 2, align = "v", axis = "lr", rel_heights = rep(1, length(plots)))
+  cowPlots <- cowplot::plot_grid(
+    plotlist = plots,
+    ncol = ncol,
+    align = "v",
+    axis = "lr"
+  )
   
   # Create the title as a ggplot object with further reduced size and spacing
   title <- cowplot::ggdraw() +
@@ -1149,15 +1168,23 @@ createPlotsByDatabaseId <- function(data, cohortId) {
       size = 16,
       hjust = 0,
       vjust = 0.5
-    )  # Adjust vertical justification to reduce space
+    )
   
   # Combine title and cowPlots into one plot with minimal space for the title
   titledPlot <- cowplot::plot_grid(title,
                                    cowPlots,
                                    ncol = 1,
-                                   rel_heights = c(0.05, 1))  # Adjust title height to minimal
+                                   rel_heights = c(0.05, 1))
   
-  return(titledPlot)
+  # Dynamically adjust the output file page size based on the number of plots
+  outputWidth <- ncol * plotWidth
+  outputHeight <- ceiling(length(plots) / ncol) * plotHeight + 1  # 1 unit for the title
+  
+  return(list(
+    plot = titledPlot,
+    width = outputWidth,
+    height = outputHeight
+  ))
 }
 
 

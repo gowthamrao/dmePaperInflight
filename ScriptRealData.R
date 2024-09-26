@@ -28,7 +28,7 @@ reportCohortCount <- cohortCount |>
   dplyr::relocate(cohortId, cohortName)
 
 #R2: stability----
-temporalStabilityOutput <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
+temporalStabilityOutputBk <- checkTemporalStabilityForcohortDiagnosticsIncidenceRateData(
   cohortDiagnosticsIncidenceRateData = incidenceRate,
   cohort = cohort,
   removeOutlierZeroCounts = TRUE,
@@ -37,6 +37,19 @@ temporalStabilityOutput <- checkTemporalStabilityForcohortDiagnosticsIncidenceRa
   maxRatio = 1.25,
   alpha = 0.05
 )
+
+temporalStabilityOutput <- temporalStabilityOutputBk |>
+  dplyr::mutate(sourceKey = databaseId) |>
+  dplyr::mutate(
+    databaseId = stringr::str_replace_all(
+      string = sourceKey,
+      pattern = "^cdm_|_v[0-9]+$",
+      replacement = ""
+    )
+  ) |>
+  dplyr::mutate(databaseId = SqlRender::camelCaseToTitleCase(SqlRender::snakeCaseToCamelCase(databaseId)))
+  
+
 
 #statistically unstable----
 cylopsStatisticallyUnstable <- temporalStabilityOutput |>
@@ -94,8 +107,7 @@ plotsPureRedCellAplasia
 plotsPolyMorphicVentricularTachycardia <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 275)
 plotsPolyMorphicVentricularTachycardia
 
-debug(plotTemporalTrendExpectedObserved)
-plotFirstAcuteHepaticFailure <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 723)
+plotFirstAcuteHepaticFailure <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 723, plotWidth = 20, plotHeight = 8)
 plotFirstAcuteHepaticFailure
 
 plotAutoimmuneHepatitis <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 729)
@@ -109,8 +121,6 @@ plotsDress
 
 plotsAli <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 736)
 plotsAli
-
-
 
 plotsAcutePancreatitis <- createPlotsByDatabaseId(data = temporalStabilityOutput, cohortId = 730)
 plotsAcutePancreatitis
